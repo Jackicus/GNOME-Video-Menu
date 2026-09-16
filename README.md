@@ -7,34 +7,63 @@ A native GNOME desktop media player and library dashboard designed to live direc
 - **Direct Desktop Rendering:** Attaches directly to `Main.layoutManager._backgroundGroup` to render over your desktop wallpaper.
 - **Zero-Snap Stacking:** Built with `Clutter.BinLayout` so all 3 navigation levels (Library, Seasons, Episodes) overlay seamlessly without vertical jumping or layout displacement.
 - **GNOME-Native Animations:** Snappy sliding transitions (`Clutter.AnimationMode.EASE_OUT_QUAD`) and cubic hero poster expansion (`Clutter.AnimationMode.EASE_OUT_CUBIC`).
-- **Dynamic Module Hot-Reloading:** `extension.js` serves as a dynamic timestamp loader that imports `media_workspace.js`. Any edits reload live with `gnome-extensions disable` / `enable` without restarting the GNOME Shell.
+- **Dynamic Module Hot-Reloading:** `extension.js` is a thin timestamp loader that imports `lib/mediaWorkspace.js`. Any edits reload live with `make reload` — no GNOME Shell restart, which matters on Wayland.
 - **Libadwaita Preferences Dialog:** Native settings for media directories, desktop columns, workspace picker, and one-click library indexing.
 
 ## Directory Structure
 
+`src/` is an exact mirror of the installed extension directory, so installing is a
+straight copy (or a symlink in dev mode) with no file list to keep in sync.
+
 ```text
-Projects/gnomeflix/
-├── extension.js          # GNOME Shell extension entry point (dynamic hot loader)
-├── media_workspace.js    # Core UI, layout manager, and animation engine
-├── prefs.js              # Libadwaita preferences dialog
-├── stylesheet.css        # Desktop presentation styles (strict St CSS)
-├── media_scanner.py      # Local media directory parser
-├── metadata.py           # Metadata scraper and artwork downloader
-├── metadata.json         # Extension manifest (UUID: gnomeflix@jackt)
-├── schemas/              # GSettings schema definition & compiled binary
-├── install.sh            # One-click schema compilation and extension installer
-└── Makefile              # Development tasks (compile, install, reload, pack)
+gnomeflix/
+├── src/                    # ← becomes ~/.local/share/gnome-shell/extensions/gnomeflix@jackt
+│   ├── metadata.json       # Extension manifest (UUID: gnomeflix@jackt)
+│   ├── extension.js        # Entry point — dynamic hot loader
+│   ├── prefs.js            # Libadwaita preferences dialog
+│   ├── stylesheet.css      # Desktop presentation styles (strict St CSS)
+│   ├── lib/
+│   │   └── mediaWorkspace.js   # Core UI, layout manager, and animation engine
+│   ├── backend/
+│   │   ├── media_scanner.py    # Local media directory parser
+│   │   ├── metadata.py         # Metadata scraper and artwork downloader
+│   │   └── scan_library.py     # CLI entry point used by the prefs Rescan button
+│   └── schemas/
+│       └── org.gnome.shell.extensions.gnomeflix.gschema.xml
+├── scripts/
+│   └── dev.sh              # install / link / reload / logs / pack / scan / status
+├── Makefile                # Thin wrapper over scripts/dev.sh
+└── README.md
 ```
 
-## Quick Development Commands
+Runtime data lives in `~/.cache/gnomeflix/` (`library.json`, `posters/`, `metadata/`).
+
+## Development
 
 ```bash
-# Compile schemas and install to ~/.local/share/gnome-shell/extensions/gnomeflix@jackt
-make install
+# Dev mode: symlink src/ into the extensions dir, so edits are live
+make link
 
-# Hot-reload in running GNOME Shell (no logout needed!)
+# Apply your edits (recompiles schemas, disable/enable, no shell restart)
 make reload
 
-# Package into extension zip bundle
-make pack
+# Follow shell logs, filtered to Gnomeflix
+make logs
+
+# Index the media library and download artwork
+make scan
 ```
+
+`make link` is the one to use while working in this repo. Run it once; after that
+`make reload` picks up every edit straight from `src/`.
+
+## Other commands
+
+| Command | Does |
+|---|---|
+| `make install` | Clean copy into the extensions dir (a real install, not a symlink) |
+| `make status` | Show what's installed, whether it's enabled, and library size |
+| `make pack` | Build `dist/gnomeflix@jackt.shell-extension.zip` |
+| `make prune` | Remove superseded builds of this extension, keeping the current one |
+| `make uninstall` | Remove the extension entirely, stale older builds included |
+| `make clean` | Drop compiled schemas, `dist/`, and `__pycache__` |

@@ -5,7 +5,7 @@ import urllib.request
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-CACHE_DIR = os.path.expanduser("~/.cache/gnome-media-center")
+CACHE_DIR = os.path.expanduser("~/.cache/gnomeflix")
 POSTER_CACHE_DIR = os.path.join(CACHE_DIR, "posters")
 METADATA_CACHE_DIR = os.path.join(CACHE_DIR, "metadata")
 
@@ -64,7 +64,7 @@ class MetadataService:
         rating = None
 
         try:
-            req = urllib.request.Request(api_url, headers={'User-Agent': 'GnomeMediaCenter/1.0'})
+            req = urllib.request.Request(api_url, headers={'User-Agent': 'Gnomeflix/1.0'})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 results = json.loads(resp.read().decode('utf-8'))
                 if results and len(results) > 0:
@@ -86,7 +86,7 @@ class MetadataService:
         # 3. Download poster image or create fallback SVG
         if img_url:
             try:
-                img_req = urllib.request.Request(img_url, headers={'User-Agent': 'GnomeMediaCenter/1.0'})
+                img_req = urllib.request.Request(img_url, headers={'User-Agent': 'Gnomeflix/1.0'})
                 with urllib.request.urlopen(img_req, timeout=8) as img_resp:
                     with open(poster_file, 'wb') as out_f:
                         out_f.write(img_resp.read())

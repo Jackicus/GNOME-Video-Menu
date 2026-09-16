@@ -94,7 +94,7 @@ export class GnomeflixApp {
     _loadLibraryData() {
         const libPath = GLib.build_filenamev([
             GLib.get_user_cache_dir(),
-            'gnome-media-center',
+            'gnomeflix',
             'library.json'
         ]);
 

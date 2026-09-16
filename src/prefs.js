@@ -59,33 +59,29 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         button.connect('clicked', () => {
             button.set_sensitive(false);
             scanBtn.set_label('Scanning...');
+
+            // Resolve the scanner relative to this extension, wherever it is installed
+            const scriptPath = GLib.build_filenamev([this.path, 'backend', 'scan_library.py']);
+            const argv = ['python3', scriptPath];
+
             const tvPath = settings.get_string('tv-shows-path');
+            if (tvPath)
+                argv.push('--tv-path', tvPath);
+
             try {
-                const proc = Gio.Subprocess.new(
-                    ['python3', '-c', `
-import json, os, sys
-sys.path.insert(0, '/home/jackt/Projects/gnomeflix')
-from media_scanner import MediaScanner
-from metadata import MetadataService
-
-scanner = MediaScanner('${tvPath}')
-shows = scanner.scan_shows()
-meta = MetadataService()
-for s in shows:
-    meta._fetch_show_worker(s)
-
-out_file = os.path.expanduser('~/.cache/gnome-media-center/library.json')
-with open(out_file, 'w') as f:
-    json.dump(shows, f, indent=2)
-print('Done scanning')
-                    `],
-                    Gio.SubprocessFlags.NONE
-                );
+                const proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_PIPE);
                 proc.wait_check_async(null, (source, result) => {
                     button.set_sensitive(true);
-                    scanBtn.set_label('Scan Complete ✓');
+                    try {
+                        source.wait_check_finish(result);
+                        scanBtn.set_label('Scan Complete ✓');
+                    } catch (e) {
+                        console.error(`[Gnomeflix] Library scan failed: ${e.message}`);
+                        scanBtn.set_label('Scan Failed');
+                    }
                 });
             } catch (e) {
+                console.error(`[Gnomeflix] Could not launch ${scriptPath}: ${e.message}`);
                 button.set_sensitive(true);
                 scanBtn.set_label('Scan Failed');
             }
