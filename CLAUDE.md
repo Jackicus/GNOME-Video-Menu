@@ -17,11 +17,24 @@ directly onto the desktop wallpaper — no window, no titlebar. Shell version 50
 | `make prune` | Remove superseded builds, keep the current one |
 | `make uninstall` | Remove everything, stale builds included |
 | `make clean` | Drop compiled schemas, `dist/`, `__pycache__` |
+| `make preview` | Screenshot the extension running in a nested shell |
+| `make nested` / `make nested-stop` | Start / stop that nested shell |
+
+## Seeing it
+
+The UI renders onto the desktop wallpaper, not into a window, so a visual change
+can only be verified by looking at it. `make preview` starts a **headless nested
+GNOME Shell**, loads the extension into it, and screenshots the result — nothing
+appears on the user's screen. It can be clicked through too
+(`./scripts/nested.sh click X Y`) to test Library → Seasons → Episodes navigation.
+
+Read the **`drive-extension` skill** before driving it; it covers the lifecycle and
+the traps. `make nested-stop` tears it down — always do that when finished.
 
 All of them delegate to `scripts/dev.sh`; put new logic there, not in the Makefile.
 
 `.claude/commands/` wraps the four you'll reach for most — `/reload`, `/logs`,
-`/status`, `/scan` — with the checks worth running alongside them.
+`/status`, `/scan`, `/preview` — with the checks worth running alongside them.
 
 ## Layout
 
