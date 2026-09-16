@@ -103,13 +103,34 @@ enable_extension() {
     fi
 }
 
+# Poll until the shell reports the wanted state, up to ~6s.
+wait_for_state() {
+    local want="$1" tries=0
+    while (( tries < 60 )); do
+        [[ "$(gnome-extensions info "$UUID" 2>/dev/null | sed -n 's/^ *State: *//p')" == "$want" ]] && return 0
+        sleep 0.1
+        tries=$((tries + 1))
+    done
+    return 1
+}
+
 cmd_reload() {
     require gnome-extensions
     compile_schemas
     info "Reloading $UUID..."
     gnome-extensions disable "$UUID" 2>/dev/null || true
+    # The shell applies disable asynchronously. Calling enable before it lands is
+    # a silent no-op -- the shell still believes the extension is enabled, so it
+    # never re-runs enable(), and you are left with State: INACTIVE, Enabled: Yes
+    # and nothing at all in the log.
+    wait_for_state INACTIVE || warn "Extension did not report INACTIVE; enabling anyway."
     gnome-extensions enable "$UUID"
-    ok "Reloaded. extension.js cache-busts the module import, so no shell restart needed."
+    if wait_for_state ACTIVE; then
+        ok "Reloaded. extension.js cache-busts the module import, so no shell restart needed."
+    else
+        warn "Extension is enabled but not ACTIVE. Check './scripts/dev.sh logs' for a JS error."
+        return 1
+    fi
 }
 
 # With no argument, follow the journal. With one (any systemd time spec, e.g.

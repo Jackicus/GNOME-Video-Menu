@@ -194,11 +194,29 @@ cmd_overview() {
     nested_env python3 "$DRIVER" overview "$1"
 }
 
+nested_state() {
+    nested_env gnome-extensions info "$UUID" 2>/dev/null | sed -n 's/^ *State: *//p'
+}
+
 cmd_reload() {
     require_running
     info "Reloading $UUID inside the nested shell..."
     nested_env gnome-extensions disable "$UUID" 2>/dev/null || true
+    # Same race as the real session: enabling before the disable lands is a silent
+    # no-op that leaves the extension INACTIVE with nothing in the log.
+    local tries=0
+    while [[ "$(nested_state)" != "INACTIVE" ]] && (( tries < 60 )); do
+        sleep 0.1
+        tries=$((tries + 1))
+    done
     nested_env gnome-extensions enable "$UUID" || die "Could not enable $UUID in the nested shell."
+    tries=0
+    while [[ "$(nested_state)" != "ACTIVE" ]] && (( tries < 60 )); do
+        sleep 0.1
+        tries=$((tries + 1))
+    done
+    [[ "$(nested_state)" == "ACTIVE" ]] \
+        || die "Enabled but not ACTIVE -- check './scripts/nested.sh logs' for a JS error."
     ok "Reloaded."
 }
 
