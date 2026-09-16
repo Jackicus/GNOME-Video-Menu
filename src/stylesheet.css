@@ -1,307 +1,436 @@
-/* Media Workspace Desktop Extension Stylesheet */
+/* Gnomeflix — St stylesheet.
+ *
+ * Paint only: layout lives in lib/. St CSS is a strict subset of web CSS
+ * (no flexbox, grid, calc() or variables) but it does know the system accent
+ * colour: -st-accent-color / -st-accent-fg-color, plus st-lighten(),
+ * st-darken(), st-mix() and st-transparentize(), exactly as the shell's own
+ * theme uses them. Every coloured surface below derives from those, so the
+ * extension follows Settings → Appearance → Accent Color automatically.
+ *
+ * Surfaces echo the shell's dark theme (#222226 / #36363a panels, #fafafb
+ * text) but stay translucent so the wallpaper reads through.
+ */
 
-.mwd-desktop-container {
-    padding-top: 24px;
-    padding-bottom: 24px;
-    padding-left: 36px;
-    padding-right: 36px;
+/* ---- Surface & header ------------------------------------------------- */
+
+.gf-surface {
+    padding: 0px;
 }
 
-.mwd-header-title {
-    font-size: 32px;
-    font-weight: 900;
-    color: #ffffff;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+.gf-header {
+    height: 52px;
+    margin-bottom: 24px;
+    spacing: 16px;
 }
 
-.mwd-header-badge {
-    background-color: #3584e4;
-    color: #ffffff;
-    font-size: 13px;
-    font-weight: bold;
-    border-radius: 9999px;
-    padding-top: 4px;
-    padding-bottom: 4px;
-    padding-left: 14px;
-    padding-right: 14px;
-    margin-left: 14px;
+.gf-header-titles {
+    spacing: 2px;
 }
 
-.mwd-header-subtitle {
-    font-size: 14px;
-    color: #cdd6f4;
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
-    margin-top: 4px;
-    margin-bottom: 16px;
-}
-
-.mwd-card-box {
-    margin: 8px;
-}
-
-.mwd-cover-btn {
-    border-radius: 12px;
-    border: 2px solid rgba(255, 255, 255, 0.15);
-    background-color: rgba(30, 30, 46, 0.9);
-    transition-duration: 200ms;
-}
-
-.mwd-cover-btn:hover {
-    border-color: #3584e4;
-}
-
-.mwd-eps-badge {
-    background-color: rgba(0, 0, 0, 0.8);
-    color: #78aeed;
-    font-size: 11px;
-    font-weight: bold;
-    border-radius: 6px;
-    padding-top: 3px;
-    padding-bottom: 3px;
-    padding-left: 8px;
-    padding-right: 8px;
-    margin: 8px;
-}
-
-.mwd-show-title {
-    font-size: 13px;
-    font-weight: bold;
-    color: #ffffff;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 1.0);
-    margin-top: 8px;
-    text-align: center;
-}
-
-/* Navigation Top Bar */
-.mwd-back-btn {
-    background-color: rgba(255, 255, 255, 0.12);
-    border-radius: 9999px;
-    padding-top: 8px;
-    padding-bottom: 8px;
-    padding-left: 22px;
-    padding-right: 22px;
-    color: #ffffff;
-    font-weight: bold;
-    font-size: 13px;
-    transition-duration: 180ms;
-}
-
-.mwd-back-btn:hover {
-    background-color: #3584e4;
-    color: #ffffff;
-}
-
-/* Split Dashboard Layout */
-.mwd-split-dashboard {
-    padding-top: 8px;
-}
-
-.mwd-detail-left-col {
-    background: linear-gradient(135deg, rgba(30, 30, 46, 0.85), rgba(20, 20, 30, 0.95));
-    border-radius: 20px;
-    padding-top: 24px;
-    padding-bottom: 24px;
-    padding-left: 24px;
-    padding-right: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.mwd-detail-right-col {
-    background: linear-gradient(180deg, rgba(25, 25, 38, 0.85), rgba(18, 18, 28, 0.95));
-    border-radius: 20px;
-    padding-top: 24px;
-    padding-bottom: 24px;
-    padding-left: 28px;
-    padding-right: 28px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.mwd-detail-big-cover {
-    border-radius: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.25);
-    background-color: rgba(20, 20, 30, 0.95);
-}
-
-.mwd-detail-title {
-    font-size: 28px;
-    font-weight: 900;
-    color: #ffffff;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
-}
-
-.mwd-section-heading {
-    font-size: 22px;
+.gf-header-title {
+    font-size: 26px;
     font-weight: 800;
-    color: #ffffff;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+    color: #fafafb;
+    text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.6);
 }
 
-.mwd-detail-summary {
+.gf-header-subtitle {
     font-size: 13px;
-    color: #cdd6f4;
-    line-height: 1.5;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
-    margin-top: 4px;
+    color: rgba(250, 250, 251, 0.7);
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.6);
 }
 
-.mwd-play-first-btn {
-    background-color: #3584e4;
-    color: #ffffff;
-    font-weight: bold;
-    font-size: 13px;
-    border-radius: 8px;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    padding-left: 22px;
-    padding-right: 22px;
-    transition-duration: 180ms;
-}
-
-.mwd-play-first-btn:hover {
-    background-color: #1c71d8;
-}
-
-.mwd-rating-badge {
-    background-color: rgba(246, 211, 45, 0.2);
-    color: #f6d32d;
-    font-weight: bold;
-    font-size: 12px;
-    border-radius: 6px;
-    padding-top: 3px;
-    padding-bottom: 3px;
-    padding-left: 10px;
-    padding-right: 10px;
-    margin-left: 10px;
-}
-
-.mwd-genre-badge {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #cdd6f4;
-    font-size: 12px;
-    border-radius: 6px;
-    padding-top: 3px;
-    padding-bottom: 3px;
-    padding-left: 10px;
-    padding-right: 10px;
-    margin-left: 10px;
-}
-
-.mwd-season-active-pill {
-    background-color: #3584e4;
-    color: #ffffff;
-    font-size: 13px;
-    font-weight: bold;
-    border-radius: 6px;
-    padding-top: 3px;
-    padding-bottom: 3px;
-    padding-left: 12px;
-    padding-right: 12px;
-}
-
-/* Season Cards (Level 2) */
-.mwd-season-card {
-    background-color: rgba(30, 30, 46, 0.75);
-    border-radius: 14px;
-    padding-top: 18px;
-    padding-bottom: 18px;
-    padding-left: 24px;
-    padding-right: 24px;
-    margin-bottom: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    transition-duration: 180ms;
-}
-
-.mwd-season-card:hover {
-    background-color: rgba(49, 50, 68, 0.95);
-    border-color: #3584e4;
-}
-
-.mwd-season-number-badge {
-    background-color: rgba(53, 132, 228, 0.25);
-    color: #78aeed;
-    font-size: 18px;
-    font-weight: 900;
-    border-radius: 10px;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    padding-left: 18px;
-    padding-right: 18px;
-}
-
-.mwd-season-card-title {
-    font-size: 18px;
-    font-weight: bold;
-    color: #ffffff;
-}
-
-.mwd-season-card-subtitle {
-    font-size: 12px;
-    color: #a6adc8;
-    margin-top: 2px;
-}
-
-.mwd-season-arrow-badge {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #cdd6f4;
-    font-size: 12px;
-    font-weight: bold;
+/* Circular icon button, the header-bar "back" shape. */
+.gf-icon-button {
+    width: 40px;
+    height: 40px;
     border-radius: 9999px;
-    padding-top: 6px;
-    padding-bottom: 6px;
-    padding-left: 16px;
-    padding-right: 16px;
-    transition-duration: 180ms;
-}
-
-.mwd-season-card:hover .mwd-season-arrow-badge {
-    background-color: #3584e4;
-    color: #ffffff;
-}
-
-/* Episode Rows (Level 3) */
-.mwd-episode-row {
-    background-color: rgba(30, 30, 46, 0.7);
-    border-radius: 10px;
-    padding-top: 12px;
-    padding-bottom: 12px;
-    padding-left: 18px;
-    padding-right: 18px;
-    margin-bottom: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: rgba(250, 250, 251, 0.12);
+    color: #fafafb;
     transition-duration: 150ms;
 }
 
-.mwd-episode-row:hover {
-    background-color: rgba(49, 50, 68, 0.95);
-    border-color: #3584e4;
+.gf-icon-button:hover,
+.gf-icon-button:focus {
+    background-color: rgba(250, 250, 251, 0.2);
 }
 
-.mwd-ep-play-icon {
-    color: #3584e4;
+.gf-icon-button:active {
+    background-color: rgba(250, 250, 251, 0.28);
+}
+
+/* ---- Segmented section switcher --------------------------------------- */
+
+.gf-segmented {
+    background-color: rgba(34, 34, 38, 0.7);
+    border: 1px solid rgba(250, 250, 251, 0.08);
+    border-radius: 9999px;
+    padding: 4px;
+    spacing: 2px;
+}
+
+.gf-segment {
+    border-radius: 9999px;
+    padding: 6px 16px;
+    color: rgba(250, 250, 251, 0.75);
+    font-size: 13px;
+    font-weight: bold;
+    transition-duration: 150ms;
+}
+
+.gf-segment-content {
+    spacing: 8px;
+}
+
+.gf-segment:hover,
+.gf-segment:focus {
+    background-color: rgba(250, 250, 251, 0.1);
+    color: #fafafb;
+}
+
+.gf-segment:checked {
+    background-color: -st-accent-color;
+    color: -st-accent-fg-color;
+}
+
+.gf-segment:checked:hover {
+    background-color: st-lighten(-st-accent-color, 5%);
+}
+
+/* ---- Library grid ------------------------------------------------------ */
+
+
+.gf-tile {
+    border-radius: 14px;
+    padding: 0px;
+}
+
+.gf-tile:focus .gf-art {
+    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35), 0px 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.gf-art {
+    border-radius: 12px;
+    background-color: rgba(34, 34, 38, 0.8);
+    box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.gf-tile-title {
+    margin-top: 10px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #fafafb;
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.gf-tile:hover .gf-tile-title {
+    color: st-lighten(-st-accent-color, 25%);
+}
+
+.gf-tile-subtitle {
+    margin-top: 1px;
+    font-size: 11px;
+    color: rgba(250, 250, 251, 0.6);
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* Placeholder artwork: an accent-tinted gradient with the section icon. */
+.gf-art-placeholder {
+    background-gradient-direction: vertical;
+    background-gradient-start: st-mix(-st-accent-color, #222226, 45%);
+    background-gradient-end: st-mix(-st-accent-color, #222226, 12%);
+}
+
+.gf-art-placeholder-content {
+    spacing: 12px;
+    padding: 12px;
+}
+
+.gf-art-placeholder-icon {
+    color: st-transparentize(-st-accent-fg-color, 0.15);
+}
+
+.gf-art-placeholder-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: st-transparentize(-st-accent-fg-color, 0.15);
+    text-align: center;
+}
+
+/* ---- Detail pane ------------------------------------------------------- */
+
+.gf-pane {
+    background-color: rgba(34, 34, 38, 0.72);
+    border: 1px solid rgba(250, 250, 251, 0.08);
+    border-radius: 24px;
+}
+
+.gf-pane-content {
+    padding: 28px;
+    spacing: 32px;
+}
+
+/* TMDB backdrop behind the pane content, dimmed so the type stays legible. */
+.gf-backdrop {
+    border-radius: 24px;
+}
+
+.gf-backdrop-veil {
+    border-radius: 24px;
+    background-gradient-direction: horizontal;
+    background-gradient-start: rgba(20, 20, 24, 0.92);
+    background-gradient-end: rgba(20, 20, 24, 0.7);
+}
+
+.gf-tagline {
+    font-size: 15px;
+    font-style: italic;
+    color: rgba(250, 250, 251, 0.7);
+}
+
+.gf-detail-side {
+    spacing: 12px;
+}
+
+.gf-hero {
+    border-radius: 16px;
+    margin-bottom: 8px;
+    box-shadow: 0px 10px 28px rgba(0, 0, 0, 0.55);
+}
+
+.gf-detail-main {
+    spacing: 14px;
+}
+
+.gf-detail-title {
+    font-size: 30px;
+    font-weight: 800;
+    color: #fafafb;
+}
+
+.gf-facts {
+    spacing: 8px;
+}
+
+.gf-fact {
+    font-size: 12px;
+    font-weight: bold;
+    color: rgba(250, 250, 251, 0.85);
+    background-color: rgba(250, 250, 251, 0.1);
+    border-radius: 9999px;
+    padding: 4px 12px;
+}
+
+.gf-fact-strong {
+    color: -st-accent-fg-color;
+    background-color: -st-accent-color;
+}
+
+.gf-fact-rating {
+    color: st-lighten(-st-accent-color, 30%);
+    background-color: st-transparentize(-st-accent-color, 0.8);
+}
+
+.gf-fact-tag {
+    color: rgba(250, 250, 251, 0.65);
+    background-color: rgba(250, 250, 251, 0.06);
+    font-weight: normal;
+}
+
+.gf-summary {
     font-size: 14px;
+    color: rgba(250, 250, 251, 0.78);
+    line-height: 1.5;
+}
+
+/* Primary and secondary pill buttons. */
+.gf-action {
+    border-radius: 9999px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: bold;
+    color: -st-accent-fg-color;
+    background-color: -st-accent-color;
+    transition-duration: 150ms;
+}
+
+.gf-action-content {
+    spacing: 10px;
+}
+
+.gf-action:hover,
+.gf-action:focus {
+    background-color: st-lighten(-st-accent-color, 6%);
+}
+
+.gf-action:active {
+    background-color: st-darken(-st-accent-color, 6%);
+}
+
+.gf-action-secondary {
+    color: #fafafb;
+    background-color: rgba(250, 250, 251, 0.12);
+}
+
+.gf-action-secondary:hover,
+.gf-action-secondary:focus {
+    background-color: rgba(250, 250, 251, 0.2);
+}
+
+.gf-action-secondary:active {
+    background-color: rgba(250, 250, 251, 0.28);
+}
+
+/* Season / group tabs. */
+.gf-tabs {
+    margin-top: 4px;
+    spacing: 6px;
+}
+
+.gf-tab {
+    border-radius: 9999px;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: bold;
+    color: rgba(250, 250, 251, 0.75);
+    background-color: rgba(250, 250, 251, 0.08);
+    transition-duration: 150ms;
+}
+
+.gf-tab:hover,
+.gf-tab:focus {
+    background-color: rgba(250, 250, 251, 0.16);
+    color: #fafafb;
+}
+
+.gf-tab:checked {
+    color: -st-accent-fg-color;
+    background-color: -st-accent-color;
+}
+
+.gf-group-heading {
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: bold;
+    color: rgba(250, 250, 251, 0.55);
+}
+
+/* Entry rows. */
+.gf-list-scroll {
+    margin-top: 2px;
+}
+
+.gf-list {
+    spacing: 2px;
+    padding-right: 8px;
+}
+
+.gf-row {
+    border-radius: 12px;
+    padding: 8px 14px 8px 10px;
+    transition-duration: 120ms;
+}
+
+.gf-row:hover,
+.gf-row:focus {
+    background-color: rgba(250, 250, 251, 0.08);
+}
+
+.gf-row:active {
+    background-color: rgba(250, 250, 251, 0.14);
+}
+
+.gf-row-index {
+    width: 36px;
+    height: 36px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: bold;
+    color: rgba(250, 250, 251, 0.7);
+    background-color: rgba(250, 250, 251, 0.08);
+    text-align: center;
+}
+
+.gf-row:hover .gf-row-index {
+    color: -st-accent-fg-color;
+    background-color: -st-accent-color;
+}
+
+.gf-row-text {
+    margin-left: 14px;
     margin-right: 14px;
 }
 
-.mwd-ep-title {
+.gf-row-title {
     font-size: 14px;
-    font-weight: bold;
-    color: #ffffff;
+    color: #fafafb;
 }
 
-.mwd-sub-badge {
-    background-color: rgba(46, 194, 126, 0.25);
-    color: #57e389;
+.gf-row-subtitle {
+    font-size: 11px;
+    color: rgba(250, 250, 251, 0.55);
+}
+
+.gf-badge {
     font-size: 10px;
     font-weight: bold;
-    border-radius: 4px;
-    padding-top: 2px;
-    padding-bottom: 2px;
-    padding-left: 6px;
-    padding-right: 6px;
+    color: st-lighten(-st-accent-color, 30%);
+    background-color: st-transparentize(-st-accent-color, 0.8);
+    border-radius: 6px;
+    padding: 2px 7px;
     margin-right: 12px;
 }
 
-.mwd-ep-size {
+.gf-row-size {
     font-size: 12px;
-    color: #a6adc8;
+    color: rgba(250, 250, 251, 0.5);
+    margin-right: 16px;
+}
+
+.gf-row-icon {
+    color: rgba(250, 250, 251, 0.3);
+}
+
+.gf-row:hover .gf-row-icon {
+    color: st-lighten(-st-accent-color, 25%);
+}
+
+/* Photo thumbnails. */
+.gf-thumb-grid {
+    padding: 4px 4px 0px 4px;
+}
+
+.gf-thumb {
+    border-radius: 10px;
+    background-color: rgba(34, 34, 38, 0.8);
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.gf-thumb:focus {
+    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35);
+}
+
+/* ---- Empty state ------------------------------------------------------- */
+
+.gf-empty {
+    spacing: 10px;
+}
+
+.gf-empty-icon {
+    color: rgba(250, 250, 251, 0.35);
+    margin-bottom: 8px;
+}
+
+.gf-empty-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: #fafafb;
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.gf-empty-hint {
+    font-size: 13px;
+    color: rgba(250, 250, 251, 0.65);
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+    margin-bottom: 12px;
 }
