@@ -8,6 +8,7 @@ import Pango from 'gi://Pango';
 
 import {Duration, slideSwap, staggerIn} from './anim.js';
 import {createArtwork, createActionButton, createPill, createRow, createThumb} from './widgets.js';
+import {radiusStyle} from './shape.js';
 
 // The hero fills the pane's height, less its padding and the two action
 // buttons beneath it, within these bounds.
@@ -85,15 +86,21 @@ export class DetailView {
             x_expand: true,
             y_expand: true,
             clip_to_allocation: true,
+            style: radiusStyle('pane'),
         });
         this.actor.add_child(pane);
 
         if (item.backdrop) {
             const backdrop = new St.Widget({style_class: 'gf-backdrop', x_expand: true, y_expand: true});
-            backdrop.set_style(`background-image: url("file://${encodeURI(item.backdrop)}"); background-size: cover;`);
+            backdrop.set_style(`background-image: url("file://${encodeURI(item.backdrop)}"); background-size: cover; ${radiusStyle('pane')}`);
             pane.add_child(backdrop);
             // A dark veil keeps the text readable over bright artwork.
-            pane.add_child(new St.Widget({style_class: 'gf-backdrop-veil', x_expand: true, y_expand: true}));
+            pane.add_child(new St.Widget({
+                style_class: 'gf-backdrop-veil',
+                x_expand: true,
+                y_expand: true,
+                style: radiusStyle('pane'),
+            }));
         }
 
         const columns = new St.BoxLayout({style_class: 'gf-pane-content', x_expand: true, y_expand: true});
@@ -118,6 +125,7 @@ export class DetailView {
             width: heroW,
             height: heroH,
             styleClass: 'gf-art gf-hero',
+            radius: 'hero',
         });
         side.add_child(this.hero);
 

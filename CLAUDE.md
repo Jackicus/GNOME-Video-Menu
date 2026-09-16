@@ -60,6 +60,7 @@ src/
 │   ├── detailView.js      #   one item: hero, facts, synopsis, group tabs, list/grid
 │   ├── widgets.js         #   tiles, rows, pills, segmented switcher, placeholders
 │   ├── anim.js            #   the motion vocabulary (durations, curves, helpers)
+│   ├── shape.js           #   the shape vocabulary: one corner radius, scaled per part
 │   └── library.js         #   reads library.json, normalises every media kind
 ├── backend/               # Python: scanning, metadata, artwork
 │   ├── media_scanner.py   #   walks folders → dicts, one scanner per section
@@ -137,6 +138,12 @@ releases them on disable.
   use: 150 ms for hover and window-style pops, 250 ms ease-out-quad for the rest,
   350 ms for the hero flight. Don't invent new ones; `actor.ease()` already
   honours the animations toggle and slow-down factor.
+- **Corners come from one radius.** `corner-radius` (a setting, default 18px) is
+  the only radius in the design; `shape.js` scales it into the handful the views
+  need — artwork, tile, hero, thumbnail, row, pane, badge — and every rounded
+  surface sets it inline as it is built. The stylesheet's `border-radius` values
+  are fallbacks that match the default; change `shape.js`, not them. Pills stay
+  `9999px` and are not scaled.
 - **Colour comes from the accent.** The stylesheet never hardcodes a hue. Use
   `-st-accent-color` / `-st-accent-fg-color` with `st-lighten()`, `st-mix()` and
   `st-transparentize()`, exactly as `gnome-shell.css` does. Neutrals are the
@@ -155,6 +162,13 @@ releases them on disable.
   unknown extension UUIDs at startup.
 - **`make reload` is not optional.** Edits in `src/` are live on disk via the
   symlink, but the shell holds the old module until the disable/enable cycle.
+- **A rounded background image must carry its radius inline.** St bakes the
+  corner radius into artwork only when it renders the background image itself,
+  so `border-radius` has to travel in the same `set_style()` string as
+  `background-image`, never be left to the stylesheet alone. A small radius also
+  reads as "missing" on a large tile: the curve is only visible where the
+  artwork's corner contrasts with the wallpaper behind it, which is why it looks
+  random rather than absent.
 - **St CSS is not web CSS.** No flexbox, grid, `calc()`, CSS variables or
   `linear-gradient()` (use `background-gradient-direction/start/end`). Layout is
   done in JS (`St.BoxLayout`, `Clutter.BinLayout`); the stylesheet is for paint

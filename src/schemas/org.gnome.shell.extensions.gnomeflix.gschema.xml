@@ -133,6 +133,12 @@
             <summary>Minimum columns</summary>
             <description>Minimum covers per row; fewer means larger covers.</description>
         </key>
+        <key name="corner-radius" type="i">
+            <range min="0" max="40"/>
+            <default>18</default>
+            <summary>Corner radius</summary>
+            <description>How rounded artwork, tiles and the detail pane are, in pixels. 0 is square. The related radii (hero, thumbnails, rows, pane) scale with it.</description>
+        </key>
 
         <!-- Playback -->
         <key name="player-command" type="s">

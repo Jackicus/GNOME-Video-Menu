@@ -6,18 +6,22 @@ import Clutter from 'gi://Clutter';
 import Pango from 'gi://Pango';
 
 import {Duration, Ease} from './anim.js';
+import {radiusStyle} from './shape.js';
 
 const HOVER_SCALE = 1.05;
 const HOVER_LIFT = -4;
 
-function artworkStyle(path) {
-    return `background-image: url("file://${encodeURI(path)}"); background-size: cover;`;
+// St bakes the corner radius into the artwork only when it renders the
+// background image itself, so the radius has to travel in the same inline
+// style as the image rather than being left to the stylesheet.
+function artworkStyle(path, part) {
+    return `background-image: url("file://${encodeURI(path)}"); background-size: cover; ${radiusStyle(part)}`;
 }
 
 // A poster or album cover: the image when there is one, otherwise a tinted
 // placeholder built from the section icon and the title. Placeholders live in
 // the stylesheet so they follow the system accent colour.
-export function createArtwork({path, title, icon, width, height, styleClass = 'gf-art'}) {
+export function createArtwork({path, title, icon, width, height, styleClass = 'gf-art', radius = 'art'}) {
     const art = new St.Widget({
         style_class: styleClass,
         width,
@@ -31,10 +35,11 @@ export function createArtwork({path, title, icon, width, height, styleClass = 'g
         y_expand: false,
     });
     if (path) {
-        art.set_style(artworkStyle(path));
+        art.set_style(artworkStyle(path, radius));
         return art;
     }
 
+    art.set_style(radiusStyle(radius));
     art.add_style_class_name('gf-art-placeholder');
     const stack = new St.BoxLayout({
         vertical: true,
@@ -78,6 +83,7 @@ export function createTile({item, icon, width, height, onActivate}) {
         track_hover: true,
         x_align: Clutter.ActorAlign.START,
         y_align: Clutter.ActorAlign.START,
+        style: radiusStyle('tile'),
     });
     tile.set_pivot_point(0.5, 0.5);
 
@@ -196,6 +202,7 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
         can_focus: true,
         track_hover: true,
         x_expand: true,
+        style: radiusStyle('row'),
     });
     const content = new St.BoxLayout({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
 
@@ -218,8 +225,11 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
     }
     content.add_child(text);
 
-    for (const badge of badges)
-        content.add_child(createPill(badge, 'gf-badge'));
+    for (const badge of badges) {
+        const pill = createPill(badge, 'gf-badge');
+        pill.set_style(radiusStyle('badge'));
+        content.add_child(pill);
+    }
     if (size)
         content.add_child(new St.Label({text: size, style_class: 'gf-row-size', y_align: Clutter.ActorAlign.CENTER}));
 
@@ -244,10 +254,11 @@ export function createThumb({path, size, onActivate}) {
         track_hover: true,
         width: size,
         height: size,
+        style: radiusStyle('thumb'),
     });
     button.set_pivot_point(0.5, 0.5);
     if (path)
-        button.set_style(artworkStyle(path));
+        button.set_style(artworkStyle(path, 'thumb'));
     button.connect('notify::hover', () => {
         const s = button.hover ? 1.04 : 1;
         button.ease({scale_x: s, scale_y: s, duration: Duration.FAST, mode: Ease.OUT});

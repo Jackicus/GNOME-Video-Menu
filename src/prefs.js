@@ -138,6 +138,14 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         columns.connect('changed', () => settings.set_int('columns', Math.round(columns.get_value())));
         desktop.add(columns);
 
+        const radius = new Adw.SpinRow({
+            title: 'Corner radius',
+            subtitle: 'How rounded covers, tiles and the detail pane are, in pixels. 0 is square.',
+            adjustment: new Gtk.Adjustment({lower: 0, upper: 40, step_increment: 1, value: settings.get_int('corner-radius')}),
+        });
+        radius.connect('changed', () => settings.set_int('corner-radius', Math.round(radius.get_value())));
+        desktop.add(radius);
+
         const accent = new Adw.ActionRow({
             title: 'Accent colour',
             subtitle: 'Follows Settings → Appearance → Accent Color',

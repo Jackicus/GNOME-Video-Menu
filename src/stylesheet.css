@@ -9,6 +9,11 @@
  *
  * Surfaces echo the shell's dark theme (#222226 / #36363a panels, #fafafb
  * text) but stay translucent so the wallpaper reads through.
+ *
+ * Corner radii here are fallbacks only. They follow the "corner-radius"
+ * setting, which St CSS cannot express, so lib/shape.js sets the real value
+ * inline on every rounded surface as it is built. The numbers below match its
+ * default; change shape.js, not these.
  */
 
 /* ---- Surface & header ------------------------------------------------- */
@@ -101,7 +106,7 @@
 
 
 .gf-tile {
-    border-radius: 14px;
+    border-radius: 20px;
     padding: 0px;
 }
 
@@ -110,7 +115,7 @@
 }
 
 .gf-art {
-    border-radius: 12px;
+    border-radius: 18px;
     background-color: rgba(34, 34, 38, 0.8);
     box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.45);
 }
@@ -162,7 +167,7 @@
 .gf-pane {
     background-color: rgba(34, 34, 38, 0.72);
     border: 1px solid rgba(250, 250, 251, 0.08);
-    border-radius: 24px;
+    border-radius: 30px;
 }
 
 .gf-pane-content {
@@ -172,11 +177,11 @@
 
 /* TMDB backdrop behind the pane content, dimmed so the type stays legible. */
 .gf-backdrop {
-    border-radius: 24px;
+    border-radius: 30px;
 }
 
 .gf-backdrop-veil {
-    border-radius: 24px;
+    border-radius: 30px;
     background-gradient-direction: horizontal;
     background-gradient-start: rgba(20, 20, 24, 0.92);
     background-gradient-end: rgba(20, 20, 24, 0.7);
@@ -193,7 +198,7 @@
 }
 
 .gf-hero {
-    border-radius: 16px;
+    border-radius: 22px;
     margin-bottom: 8px;
     box-shadow: 0px 10px 28px rgba(0, 0, 0, 0.55);
 }
@@ -326,7 +331,7 @@
 }
 
 .gf-row {
-    border-radius: 12px;
+    border-radius: 18px;
     padding: 8px 14px 8px 10px;
     transition-duration: 120ms;
 }
@@ -376,7 +381,7 @@
     font-weight: bold;
     color: st-lighten(-st-accent-color, 30%);
     background-color: st-transparentize(-st-accent-color, 0.8);
-    border-radius: 6px;
+    border-radius: 9px;
     padding: 2px 7px;
     margin-right: 12px;
 }
@@ -401,7 +406,7 @@
 }
 
 .gf-thumb {
-    border-radius: 10px;
+    border-radius: 16px;
     background-color: rgba(34, 34, 38, 0.8);
     box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
 }

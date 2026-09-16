@@ -12,6 +12,7 @@ import Meta from 'gi://Meta';
 import {Duration, Ease, POP_SCALE, allocateNow, fadeTo, flyClone, rectIn} from './anim.js';
 import {SECTIONS, loadLibrary, libraryPath, openPath, sectionByKey} from './library.js';
 import {createIconButton, createSegmented} from './widgets.js';
+import {DEFAULT_RADIUS, setCornerRadius} from './shape.js';
 import {LibraryView} from './libraryView.js';
 import {DetailView} from './detailView.js';
 
@@ -71,7 +72,8 @@ export class GnomeflixApp {
             () => this._scheduleRebuild(), this);
 
         if (this._settings) {
-            const rebuildKeys = ['layout-mode', 'workspace-index', 'columns', ...SECTIONS.map(s => `${s.prefix}-enabled`)];
+            const rebuildKeys = ['layout-mode', 'workspace-index', 'columns', 'corner-radius',
+                ...SECTIONS.map(s => `${s.prefix}-enabled`)];
             for (const key of rebuildKeys)
                 this._settings.connectObject(`changed::${key}`, () => this._scheduleRebuild(), this);
         }
@@ -279,6 +281,10 @@ export class GnomeflixApp {
     // Building the surface
     // ------------------------------------------------------------------
     _build() {
+        // Every rounded surface reads its radius as it is constructed, so the
+        // setting has to be in place before anything below is built.
+        setCornerRadius(this._settings?.get_int('corner-radius') ?? DEFAULT_RADIUS);
+
         const bounds = this._bounds();
 
         this._container = new St.Widget({
