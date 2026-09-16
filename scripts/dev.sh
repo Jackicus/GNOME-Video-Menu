@@ -5,7 +5,7 @@
 #   ./scripts/dev.sh link       symlink src/ into the extensions dir (dev mode)
 #   ./scripts/dev.sh install    copy src/ into the extensions dir (real install)
 #   ./scripts/dev.sh reload     recompile schemas and disable/enable the extension
-#   ./scripts/dev.sh logs       follow GNOME Shell logs, filtered to Gnomeflix
+#   ./scripts/dev.sh logs [since]  shell logs; follows unless given e.g. '5 min ago'
 #   ./scripts/dev.sh pack       build a distributable .shell-extension.zip
 #   ./scripts/dev.sh scan       run the library scanner against the configured path
 #   ./scripts/dev.sh prune      remove superseded builds, keeping the current one
@@ -112,10 +112,19 @@ cmd_reload() {
     ok "Reloaded. extension.js cache-busts the module import, so no shell restart needed."
 }
 
+# With no argument, follow the journal. With one (any systemd time spec, e.g.
+# "5 min ago" or "today"), print what is already there and exit -- which is what
+# non-interactive callers such as the .claude slash commands need.
 cmd_logs() {
     require journalctl
-    info "Following GNOME Shell logs (Ctrl+C to stop)..."
-    journalctl -f -o cat /usr/bin/gnome-shell | grep --line-buffered -i gnomeflix
+    if [[ -n "${1:-}" ]]; then
+        info "Gnomeflix log output since '$1':"
+        journalctl -o cat /usr/bin/gnome-shell --since "$1" 2>/dev/null \
+            | grep -i gnomeflix || info "(nothing logged in that window)"
+    else
+        info "Following GNOME Shell logs (Ctrl+C to stop)..."
+        journalctl -f -o cat /usr/bin/gnome-shell | grep --line-buffered -i gnomeflix
+    fi
 }
 
 cmd_pack() {
@@ -200,7 +209,7 @@ case "${1:-}" in
     link)       cmd_link ;;
     install)    cmd_install ;;
     reload)     cmd_reload ;;
-    logs)       cmd_logs ;;
+    logs)       cmd_logs "${2:-}" ;;
     pack)       cmd_pack ;;
     scan)       cmd_scan ;;
     prune)      cmd_prune ;;
