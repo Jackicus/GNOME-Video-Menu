@@ -163,18 +163,56 @@ cmd_pack() {
     ok "Packed to $out/$UUID.shell-extension.zip"
 }
 
+# Scan every enabled section with its configured folder, mirroring what the
+# Rescan buttons in the preferences run. An empty path means the XDG user folder
+# for music, photos and documents; TV shows and films have no default.
 cmd_scan() {
     require python3
     migrate_cache
-    local tv_path
-    tv_path="$(gsettings --schemadir "$SRC_DIR/schemas" \
-        get org.gnome.shell.extensions.gnomeflix tv-shows-path 2>/dev/null | tr -d "'")"
-    info "Scanning library${tv_path:+ at $tv_path}..."
-    if [[ -n "$tv_path" ]]; then
-        python3 "$SRC_DIR/backend/scan_library.py" --tv-path "$tv_path"
-    else
-        python3 "$SRC_DIR/backend/scan_library.py"
+    local schema="org.gnome.shell.extensions.gnomeflix"
+    local -a argv=(python3 "$SRC_DIR/backend/scan_library.py")
+    local prefix flag xdg enabled path
+    while IFS='|' read -r prefix flag xdg; do
+        enabled="$(gsettings --schemadir "$SRC_DIR/schemas" get "$schema" "$prefix-enabled" 2>/dev/null || echo true)"
+        [[ "$enabled" == "true" ]] || continue
+        path="$(gsettings --schemadir "$SRC_DIR/schemas" get "$schema" "$prefix-path" 2>/dev/null | sed "s/^'//; s/'\$//")"
+        if [[ -z "$path" && -n "$xdg" ]]; then
+            path="$(xdg-user-dir "$xdg" 2>/dev/null || echo "$HOME/${xdg,,}")"
+        fi
+        [[ -n "$path" ]] || { info "$prefix: no folder set, skipping"; continue; }
+        argv+=("$flag" "$path")
+    done <<'SECTIONS'
+tv-shows|--tv-path|
+films|--films-path|
+music|--music-path|MUSIC
+photos|--photos-path|PICTURES
+documents|--documents-path|DOCUMENTS
+SECTIONS
+    # Games are not a folder of media: the flag runs the section, and the two
+    # paths only override the auto-detection of Steam and PCSX2.
+    if [[ "$(gsettings --schemadir "$SRC_DIR/schemas" get "$schema" games-enabled 2>/dev/null || echo true)" == "true" ]]; then
+        argv+=(--games)
+        local steam pcsx2
+        steam="$(gsettings --schemadir "$SRC_DIR/schemas" get "$schema" steam-path 2>/dev/null | sed "s/^'//; s/'\$//")"
+        pcsx2="$(gsettings --schemadir "$SRC_DIR/schemas" get "$schema" pcsx2-path 2>/dev/null | sed "s/^'//; s/'\$//")"
+        # Phrased "-z || append" rather than "-n && append" so an unset
+        # override leaves status 0 behind: set -e is on.
+        [[ -z "$steam" ]] || argv+=(--steam-path "$steam")
+        [[ -z "$pcsx2" ]] || argv+=(--pcsx2-path "$pcsx2")
     fi
+    [[ ${#argv[@]} -gt 2 ]] || die "No section has a folder. Set one in the preferences."
+    if [[ "$(gsettings --schemadir "$SRC_DIR/schemas" get "$schema" online-metadata 2>/dev/null)" == "false" ]]; then
+        argv+=(--offline)
+    fi
+    local get="gsettings --schemadir $SRC_DIR/schemas get $schema"
+    argv+=(--tv-provider "$($get tv-shows-provider | tr -d "'")")
+    argv+=(--films-provider "$($get films-provider | tr -d "'")")
+    info "Scanning: ${argv[*]:2}"
+    # Keys travel in the environment so they never appear in ps output.
+    GNOMEFLIX_TMDB_KEY="$($get tmdb-api-key | tr -d "'")" \
+    GNOMEFLIX_IGDB_CLIENT_ID="$($get igdb-client-id | tr -d "'")" \
+    GNOMEFLIX_IGDB_CLIENT_SECRET="$($get igdb-client-secret | tr -d "'")" \
+        "${argv[@]}"
 }
 
 # Remove superseded builds of this extension, leaving the current one alone.
@@ -214,7 +252,11 @@ cmd_status() {
     fi
     echo "cache:    $CACHE_DIR$([[ -d "$CACHE_DIR" ]] || echo ' (absent)')"
     if [[ -f "$CACHE_DIR/library.json" ]]; then
-        echo "library:  $(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))), "shows")' "$CACHE_DIR/library.json" 2>/dev/null || echo 'unreadable')"
+        echo "library:  $(python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+s = d["sections"] if isinstance(d, dict) else {"tv": d}
+print(", ".join(f"{len(v)} {k}" for k, v in s.items()) or "empty")' "$CACHE_DIR/library.json" 2>/dev/null || echo 'unreadable')"
     else
         echo "library:  not scanned yet"
     fi
