@@ -5,6 +5,42 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 
+// Poster art is 2:3, and .mwd-card-box carries an 8px margin on each side.
+const POSTER_ASPECT = 1.5;
+const CARD_GUTTER = 16;
+const CONTAINER_INSET = 60;
+// .mwd-desktop-container's own padding: 36px each side, 24px top and bottom.
+const CONTAINER_PADDING_X = 72;
+const CONTAINER_PADDING_Y = 48;
+const MIN_POSTER_WIDTH = 110;
+const MAX_POSTER_WIDTH = 320;
+// Title label plus the card's own vertical margins, below the poster.
+const CARD_CHROME = 44;
+// Header title + subtitle + the scroll view's top margin.
+const HEADER_ALLOWANCE = 105;
+// Keep a partial row visible so it reads as scrollable rather than cut off.
+const MIN_VISIBLE_ROWS = 2.5;
+// .mwd-detail-left-col is 440px wide with 24px of padding each side, so its usable
+// content is 392px. Anything wider than that is silently clipped.
+const DETAIL_COL_WIDTH = 440;
+const DETAIL_CONTENT_WIDTH = DETAIL_COL_WIDTH - 48;
+// Leave room for the synopsis scroll view's overlay scrollbar.
+const DETAIL_TEXT_WIDTH = DETAIL_CONTENT_WIDTH - 12;
+// Everything stacked above and below the synopsis in the detail column: the back
+// bar (52), the column's own padding (48), the hero cover with its margin (526),
+// the title (44), the badge row (46) and the play button (60). A BoxLayout hands
+// its children their natural height and overflows rather than shrinking them, so
+// the synopsis has to be told explicitly how much room is actually left.
+const DETAIL_SUMMARY_RESERVED = 776;
+const MIN_SUMMARY_HEIGHT = 60;
+
+// The season number inside a group name ("Season 3" -> 3), or null for a named
+// group such as "Extras" or "OVA".
+function seasonNumberOf(seasonName) {
+    const m = String(seasonName).match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+}
+
 export class GnomeflixApp {
     constructor(extension) {
         this._extension = extension;
@@ -20,6 +56,7 @@ export class GnomeflixApp {
         this._monitorsChangeId = null;
         this._settingsChangeId = null;
         this._isAnimating = false;
+        this._builtPosterW = undefined;
 
         try {
             this._settings = extension.getSettings();
@@ -181,6 +218,7 @@ export class GnomeflixApp {
             global.window_group.insert_child_at_index(this._container, 0);
         }
 
+        this._builtPosterW = this._gridMetrics().posterW;
         this._relayout();
     }
 
@@ -217,8 +255,9 @@ export class GnomeflixApp {
 
         view.add_child(headerRow);
 
+        const wsNumber = (this._settings ? this._settings.get_int('workspace-index') : 0) + 1;
         const subtitleLabel = new St.Label({
-            text: 'Workspace 1 • Native Desktop Surface • Click any cover to explore seasons',
+            text: `Workspace ${wsNumber} • Native Desktop Surface • Click any cover to explore seasons`,
             style_class: 'mwd-header-subtitle',
         });
         view.add_child(subtitleLabel);
@@ -238,11 +277,11 @@ export class GnomeflixApp {
             y_expand: true,
         });
 
-        const columnsCount = this._settings ? this._settings.get_int('columns') || 6 : 6;
+        const metrics = this._gridMetrics();
         let currentRow = null;
 
         this._shows.forEach((show, idx) => {
-            if (idx % columnsCount === 0) {
+            if (idx % metrics.columns === 0) {
                 currentRow = new St.BoxLayout({
                     vertical: false,
                     x_align: Clutter.ActorAlign.START,
@@ -250,7 +289,7 @@ export class GnomeflixApp {
                 });
                 gridBox.add_child(currentRow);
             }
-            const card = this._createCoverCard(show);
+            const card = this._createCoverCard(show, metrics);
             currentRow.add_child(card);
         });
 
@@ -260,7 +299,45 @@ export class GnomeflixApp {
         return view;
     }
 
-    _createCoverCard(show) {
+    // Cover size is pinned by two competing limits: the 'columns' setting says how
+    // wide a cover may be, and the screen height says how tall one may be before
+    // the grid stops showing enough rows to browse. Take the smaller, then fit as
+    // many columns as that size allows -- so a wide monitor fills edge to edge
+    // instead of leaving a dead strip, and a short one still shows several rows.
+    // 'columns' therefore acts as the MINIMUM column count (i.e. the maximum
+    // cover size), never a cap on how much of the screen gets used.
+    _gridMetrics() {
+        const preferred = Math.max(1, (this._settings ? this._settings.get_int('columns') : 0) || 6);
+        const monitor = Main.layoutManager.primaryMonitor;
+        const panelHeight = Main.panel ? Main.panel.height : 0;
+
+        const availableW =
+            (monitor ? monitor.width : 1920) - CONTAINER_INSET - CONTAINER_PADDING_X;
+        const availableH = (monitor ? monitor.height : 1080)
+            - panelHeight - 40 - CONTAINER_PADDING_Y - HEADER_ALLOWANCE;
+
+        const byWidth = Math.floor(availableW / preferred) - CARD_GUTTER;
+        const byHeight = Math.floor(
+            (availableH / MIN_VISIBLE_ROWS - CARD_CHROME) / POSTER_ASPECT
+        );
+
+        const posterW = Math.max(
+            MIN_POSTER_WIDTH,
+            Math.min(MAX_POSTER_WIDTH, byWidth, byHeight)
+        );
+        const columns = Math.max(
+            preferred,
+            Math.floor(availableW / (posterW + CARD_GUTTER))
+        );
+
+        return {
+            columns,
+            posterW,
+            posterH: Math.round(posterW * POSTER_ASPECT),
+        };
+    }
+
+    _createCoverCard(show, metrics) {
         const cardBox = new St.BoxLayout({
             vertical: true,
             style_class: 'mwd-card-box',
@@ -269,18 +346,20 @@ export class GnomeflixApp {
 
         const posterBtn = new St.Button({
             style_class: 'mwd-cover-btn',
-            width: 150,
-            height: 225,
+            width: metrics.posterW,
+            height: metrics.posterH,
             reactive: true,
             can_focus: true,
             track_hover: true,
         });
 
         if (show.poster_path && GLib.file_test(show.poster_path, GLib.FileTest.EXISTS)) {
+            // No background-position here: St only accepts numeric lengths for it and
+            // logs "Ignoring length property that isn't a number" for `center`,
+            // once per cover. background-size: cover already centres the art.
             posterBtn.set_style(`
                 background-image: url("file://${encodeURI(show.poster_path)}");
                 background-size: cover;
-                background-position: center;
             `);
         }
 
@@ -307,7 +386,7 @@ export class GnomeflixApp {
         const titleLabel = new St.Label({
             text: show.title,
             style_class: 'mwd-show-title',
-            width: 150,
+            width: metrics.posterW,
         });
         if (titleLabel.clutter_text) {
             titleLabel.clutter_text.single_line_mode = true;
@@ -364,7 +443,8 @@ export class GnomeflixApp {
         const leftCol = new St.BoxLayout({
             vertical: true,
             style_class: 'mwd-detail-left-col',
-            width: 440,
+            width: DETAIL_COL_WIDTH,
+            y_expand: true,
             style: 'margin-right: 32px;',
         });
 
@@ -382,7 +462,6 @@ export class GnomeflixApp {
             bigCover.set_style(`
                 background-image: url("file://${encodeURI(show.poster_path)}");
                 background-size: cover;
-                background-position: center;
             `);
         }
 
@@ -436,18 +515,44 @@ export class GnomeflixApp {
         const summaryLabel = new St.Label({
             text: summaryText,
             style_class: 'mwd-detail-summary',
-            width: 420,
+            width: DETAIL_TEXT_WIDTH,
         });
         if (summaryLabel.clutter_text) {
             summaryLabel.clutter_text.line_wrap = true;
             summaryLabel.clutter_text.line_wrap_mode = Pango.WrapMode.WORD;
         }
-        leftCol.add_child(summaryLabel);
+
+        // The synopsis scrolls inside whatever vertical space is left. Added
+        // directly, a long one grows the column until it pushes the play button
+        // off the bottom of the screen.
+        const monitorH = Main.layoutManager.primaryMonitor
+            ? Main.layoutManager.primaryMonitor.height : 1080;
+        const panelH = Main.panel ? Main.panel.height : 0;
+        const summaryH = Math.max(
+            MIN_SUMMARY_HEIGHT,
+            monitorH - panelH - 40 - DETAIL_SUMMARY_RESERVED
+        );
+
+        const summaryScroll = new St.ScrollView({
+            width: DETAIL_CONTENT_WIDTH,
+            height: summaryH,
+            overlay_scrollbars: true,
+        });
+        summaryScroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
+        const summaryBox = new St.BoxLayout({ vertical: true });
+        summaryBox.add_child(summaryLabel);
+        summaryScroll.set_child(summaryBox);
+        leftCol.add_child(summaryScroll);
 
         // Quick Play First Episode button
         if (show.episodes && show.episodes.length > 0) {
+            // Name the episode this will actually open rather than assuming S01E01 --
+            // a show whose files start at S03 would otherwise advertise the wrong one.
+            const firstTag = (show.episodes[0].filename || '').match(/S\d+\s*E\d+/i);
             const playFirstBtn = new St.Button({
-                label: '▶ Play From Start (S01E01)',
+                label: firstTag
+                    ? `▶ Play From Start (${firstTag[0].toUpperCase().replace(/\s+/g, '')})`
+                    : '▶ Play From Start',
                 style_class: 'mwd-play-first-btn',
                 reactive: true,
                 can_focus: true,
@@ -553,9 +658,14 @@ export class GnomeflixApp {
             y_align: Clutter.ActorAlign.CENTER,
         });
 
-        // Season Icon / Number Badge
+        // Season Icon / Number Badge. This has to come from the season NAME, not the
+        // card's position: a show with Season 1 and Season 3 on disk would otherwise
+        // label Season 3 as "S2".
+        const seasonNumber = seasonNumberOf(seasonName);
         const iconBadge = new St.Label({
-            text: `S${index + 1}`,
+            text: seasonNumber !== null
+                ? `S${seasonNumber}`
+                : seasonName.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || `S${index + 1}`,
             style_class: 'mwd-season-number-badge',
             y_align: Clutter.ActorAlign.CENTER,
         });
@@ -646,7 +756,8 @@ export class GnomeflixApp {
         const leftCol = new St.BoxLayout({
             vertical: true,
             style_class: 'mwd-detail-left-col',
-            width: 440,
+            width: DETAIL_COL_WIDTH,
+            y_expand: true,
             style: 'margin-right: 32px;',
         });
 
@@ -663,7 +774,6 @@ export class GnomeflixApp {
             cover.set_style(`
                 background-image: url("file://${encodeURI(show.poster_path)}");
                 background-size: cover;
-                background-position: center;
             `);
         }
 
@@ -906,10 +1016,21 @@ export class GnomeflixApp {
             seasonsMap[seasonName].push(ep);
         });
 
+        // Sort numerically, not lexicographically -- a plain .sort() orders
+        // "Season 10" before "Season 2". Named groups (Extras, OVA) go last.
         const sortedMap = {};
-        Object.keys(seasonsMap).sort().forEach(k => {
-            sortedMap[k] = seasonsMap[k];
-        });
+        Object.keys(seasonsMap)
+            .sort((a, b) => {
+                const na = seasonNumberOf(a);
+                const nb = seasonNumberOf(b);
+                if (na !== null && nb !== null) return na - nb;
+                if (na !== null) return -1;
+                if (nb !== null) return 1;
+                return a.localeCompare(b);
+            })
+            .forEach(k => {
+                sortedMap[k] = seasonsMap[k];
+            });
         return sortedMap;
     }
 
@@ -929,13 +1050,21 @@ export class GnomeflixApp {
         if (monitor) {
             const panelHeight = Main.panel ? Main.panel.height : 0;
             const topOffset = (Main.panel && Main.panel.y === 0) ? panelHeight : 0;
-            const w = monitor.width - 60;
+            const w = monitor.width - CONTAINER_INSET;
             const h = monitor.height - panelHeight - 40;
             this._container.set_position(monitor.x + 30, monitor.y + topOffset + 20);
             this._container.set_size(w, h);
             if (this._viewStack) {
                 this._viewStack.set_size(w, h);
             }
+        }
+
+        // Cover size is derived from the monitor width, so a resolution change has
+        // to rebuild the grid -- resizing the container alone would leave posters
+        // scaled for the old screen.
+        const posterW = this._gridMetrics().posterW;
+        if (this._builtPosterW !== undefined && this._builtPosterW !== posterW) {
+            this._rebuildUI();
         }
     }
 

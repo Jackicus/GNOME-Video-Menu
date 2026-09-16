@@ -12,6 +12,7 @@ the nested shell's private bus. Running it against your real session is pointles
 """
 
 import sys
+import time
 
 import gi
 
@@ -107,10 +108,18 @@ def cmd_click(x, y, width, height):
     # It must be the BOTTOM-right: the top-left is the Activities hot corner, and
     # landing there throws the shell into the overview.
     notify(sess, "NotifyPointerMotionRelative", "(dd)", 20000.0, 20000.0)
+    # The clamp to the corner is applied asynchronously, so without a pause the
+    # second motion is measured from the pointer's OLD position and the click
+    # lands somewhere else entirely.
+    time.sleep(0.15)
     notify(sess, "NotifyPointerMotionRelative", "(dd)",
            float(x - (width - 1)), float(y - (height - 1)))
+    # Let the actor under the pointer pick up hover/reactive state before pressing.
+    time.sleep(0.25)
     notify(sess, "NotifyPointerButton", "(ib)", BTN_LEFT, True)
+    time.sleep(0.05)
     notify(sess, "NotifyPointerButton", "(ib)", BTN_LEFT, False)
+    time.sleep(0.1)
     print(f"clicked ({x}, {y})")
 
 

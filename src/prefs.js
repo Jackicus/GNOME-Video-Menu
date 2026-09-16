@@ -113,7 +113,7 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
 
         const colRow = new Adw.SpinRow({
             title: 'Columns on Desktop',
-            subtitle: 'Number of covers per row across your desktop',
+            subtitle: 'Minimum covers per row — fewer means larger covers. A wide screen may fit more.',
             adjustment: new Gtk.Adjustment({
                 lower: 3,
                 upper: 12,
