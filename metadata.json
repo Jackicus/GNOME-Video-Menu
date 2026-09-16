@@ -1,0 +1,8 @@
+{
+  "uuid": "gnomeflix@jackt",
+  "name": "Gnomeflix",
+  "description": "Native GNOME desktop media player and library dashboard for your workspaces.",
+  "settings-schema": "org.gnome.shell.extensions.gnomeflix",
+  "shell-version": [ "50" ],
+  "version": 1
+}

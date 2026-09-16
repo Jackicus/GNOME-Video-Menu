@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="gnome-shell-extensions">
+    <schema path="/org/gnome/shell/extensions/gnomeflix/" id="org.gnome.shell.extensions.gnomeflix">
+        <key name="tv-shows-path" type="s">
+            <default>"/media/LENOVO/Videos/TV Shows"</default>
+            <summary>TV Shows Path</summary>
+            <description>Folder containing TV show collections</description>
+        </key>
+        <key name="films-path" type="s">
+            <default>"/media/LENOVO/Videos/Films"</default>
+            <summary>Films Path</summary>
+            <description>Folder containing Movie/Film collections</description>
+        </key>
+        <key name="workspace-index" type="i">
+            <default>0</default>
+            <summary>Workspace Index</summary>
+            <description>0-indexed workspace to display media</description>
+        </key>
+        <key name="columns" type="i">
+            <default>6</default>
+            <summary>Columns</summary>
+            <description>Number of covers per row</description>
+        </key>
+    </schema>
+</schemalist>

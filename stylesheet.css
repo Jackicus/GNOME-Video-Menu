@@ -1,0 +1,307 @@
+/* Media Workspace Desktop Extension Stylesheet */
+
+.mwd-desktop-container {
+    padding-top: 24px;
+    padding-bottom: 24px;
+    padding-left: 36px;
+    padding-right: 36px;
+}
+
+.mwd-header-title {
+    font-size: 32px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+}
+
+.mwd-header-badge {
+    background-color: #3584e4;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
+    border-radius: 9999px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    padding-left: 14px;
+    padding-right: 14px;
+    margin-left: 14px;
+}
+
+.mwd-header-subtitle {
+    font-size: 14px;
+    color: #cdd6f4;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+    margin-top: 4px;
+    margin-bottom: 16px;
+}
+
+.mwd-card-box {
+    margin: 8px;
+}
+
+.mwd-cover-btn {
+    border-radius: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    background-color: rgba(30, 30, 46, 0.9);
+    transition-duration: 200ms;
+}
+
+.mwd-cover-btn:hover {
+    border-color: #3584e4;
+}
+
+.mwd-eps-badge {
+    background-color: rgba(0, 0, 0, 0.8);
+    color: #78aeed;
+    font-size: 11px;
+    font-weight: bold;
+    border-radius: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 8px;
+    padding-right: 8px;
+    margin: 8px;
+}
+
+.mwd-show-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: #ffffff;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 1.0);
+    margin-top: 8px;
+    text-align: center;
+}
+
+/* Navigation Top Bar */
+.mwd-back-btn {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 22px;
+    padding-right: 22px;
+    color: #ffffff;
+    font-weight: bold;
+    font-size: 13px;
+    transition-duration: 180ms;
+}
+
+.mwd-back-btn:hover {
+    background-color: #3584e4;
+    color: #ffffff;
+}
+
+/* Split Dashboard Layout */
+.mwd-split-dashboard {
+    padding-top: 8px;
+}
+
+.mwd-detail-left-col {
+    background: linear-gradient(135deg, rgba(30, 30, 46, 0.85), rgba(20, 20, 30, 0.95));
+    border-radius: 20px;
+    padding-top: 24px;
+    padding-bottom: 24px;
+    padding-left: 24px;
+    padding-right: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mwd-detail-right-col {
+    background: linear-gradient(180deg, rgba(25, 25, 38, 0.85), rgba(18, 18, 28, 0.95));
+    border-radius: 20px;
+    padding-top: 24px;
+    padding-bottom: 24px;
+    padding-left: 28px;
+    padding-right: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mwd-detail-big-cover {
+    border-radius: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    background-color: rgba(20, 20, 30, 0.95);
+}
+
+.mwd-detail-title {
+    font-size: 28px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.mwd-section-heading {
+    font-size: 22px;
+    font-weight: 800;
+    color: #ffffff;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+.mwd-detail-summary {
+    font-size: 13px;
+    color: #cdd6f4;
+    line-height: 1.5;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+    margin-top: 4px;
+}
+
+.mwd-play-first-btn {
+    background-color: #3584e4;
+    color: #ffffff;
+    font-weight: bold;
+    font-size: 13px;
+    border-radius: 8px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    padding-left: 22px;
+    padding-right: 22px;
+    transition-duration: 180ms;
+}
+
+.mwd-play-first-btn:hover {
+    background-color: #1c71d8;
+}
+
+.mwd-rating-badge {
+    background-color: rgba(246, 211, 45, 0.2);
+    color: #f6d32d;
+    font-weight: bold;
+    font-size: 12px;
+    border-radius: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-left: 10px;
+}
+
+.mwd-genre-badge {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #cdd6f4;
+    font-size: 12px;
+    border-radius: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-left: 10px;
+}
+
+.mwd-season-active-pill {
+    background-color: #3584e4;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: bold;
+    border-radius: 6px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+/* Season Cards (Level 2) */
+.mwd-season-card {
+    background-color: rgba(30, 30, 46, 0.75);
+    border-radius: 14px;
+    padding-top: 18px;
+    padding-bottom: 18px;
+    padding-left: 24px;
+    padding-right: 24px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition-duration: 180ms;
+}
+
+.mwd-season-card:hover {
+    background-color: rgba(49, 50, 68, 0.95);
+    border-color: #3584e4;
+}
+
+.mwd-season-number-badge {
+    background-color: rgba(53, 132, 228, 0.25);
+    color: #78aeed;
+    font-size: 18px;
+    font-weight: 900;
+    border-radius: 10px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    padding-left: 18px;
+    padding-right: 18px;
+}
+
+.mwd-season-card-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+.mwd-season-card-subtitle {
+    font-size: 12px;
+    color: #a6adc8;
+    margin-top: 2px;
+}
+
+.mwd-season-arrow-badge {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #cdd6f4;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 9999px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    padding-left: 16px;
+    padding-right: 16px;
+    transition-duration: 180ms;
+}
+
+.mwd-season-card:hover .mwd-season-arrow-badge {
+    background-color: #3584e4;
+    color: #ffffff;
+}
+
+/* Episode Rows (Level 3) */
+.mwd-episode-row {
+    background-color: rgba(30, 30, 46, 0.7);
+    border-radius: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    padding-left: 18px;
+    padding-right: 18px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition-duration: 150ms;
+}
+
+.mwd-episode-row:hover {
+    background-color: rgba(49, 50, 68, 0.95);
+    border-color: #3584e4;
+}
+
+.mwd-ep-play-icon {
+    color: #3584e4;
+    font-size: 14px;
+    margin-right: 14px;
+}
+
+.mwd-ep-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+.mwd-sub-badge {
+    background-color: rgba(46, 194, 126, 0.25);
+    color: #57e389;
+    font-size: 10px;
+    font-weight: bold;
+    border-radius: 4px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    padding-left: 6px;
+    padding-right: 6px;
+    margin-right: 12px;
+}
+
+.mwd-ep-size {
+    font-size: 12px;
+    color: #a6adc8;
+}
