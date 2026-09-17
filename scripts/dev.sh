@@ -78,11 +78,12 @@ cmd_install() {
     mkdir -p "$EXT_DIR"
     if command -v rsync >/dev/null 2>&1; then
         rsync -a --delete \
-            --exclude '__pycache__/' --exclude '*.pyc' \
+            --exclude '__pycache__/' --exclude '*.pyc' --exclude 'CLAUDE.md' \
             "$SRC_DIR"/ "$EXT_DIR"/
     else
         cp -r "$SRC_DIR"/. "$EXT_DIR"/
         find "$EXT_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
+        find "$EXT_DIR" -name 'CLAUDE.md' -type f -delete
     fi
     ok "Installed to $EXT_DIR"
     enable_extension
@@ -154,12 +155,18 @@ cmd_pack() {
     local out="$REPO_DIR/dist"
     mkdir -p "$out"
     info "Packing extension..."
-    # pack bundles everything under --extra-source dirs, byte-compiled cruft included
-    find "$SRC_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
-    ( cd "$SRC_DIR" && gnome-extensions pack --force \
+    # pack bundles everything under --extra-source dirs and has no exclude flag,
+    # so pack a staged copy with the byte-compiled cruft and CLAUDE.md notes removed
+    local stage
+    stage=$(mktemp -d)
+    cp -r "$SRC_DIR"/. "$stage"/
+    find "$stage" -name '__pycache__' -type d -prune -exec rm -rf {} +
+    find "$stage" -name 'CLAUDE.md' -type f -delete
+    ( cd "$stage" && gnome-extensions pack --force \
         --extra-source=lib \
         --extra-source=backend \
         -o "$out" . )
+    rm -rf "$stage"
     ok "Packed to $out/$UUID.shell-extension.zip"
 }
 
