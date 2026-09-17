@@ -15,6 +15,7 @@ import {createIconButton, createSegmented} from './widgets.js';
 import {DEFAULT_RADIUS, setCornerRadius} from './shape.js';
 import {LibraryView} from './libraryView.js';
 import {DetailView} from './detailView.js';
+import {OverviewPreview} from './overviewPreview.js';
 
 // Gap between the surface and the work-area edges.
 const OUTER_MARGIN = 28;
@@ -38,6 +39,7 @@ export class GnomeflixApp {
         this._busy = false;
         this._heroFrom = null;
         this._monitor = null;
+        this._previews = null;
         this._rebuildTimer = 0;
         this._reloadTimer = 0;
         this._keptAlive = [];
@@ -117,6 +119,8 @@ export class GnomeflixApp {
     }
 
     _teardown() {
+        this._previews?.destroy();
+        this._previews = null;
         this._library?.destroy();
         this._detail?.destroy();
         this._container?.destroy();
@@ -340,6 +344,29 @@ export class GnomeflixApp {
 
         this._library.showSection(this._sectionKey, this._sections[this._sectionKey] ?? [], {reveal: true});
         this._header.setLibraryMode(this._sectionKey, false);
+
+        // The overview never shows this surface — it builds its own wallpaper
+        // for every workspace preview — so a copy has to be put into each.
+        this._previews = new OverviewPreview({
+            sectionForWorkspace: index => this._previewSectionFor(index),
+            itemsFor: key => this._sections[key] ?? [],
+            enabledSections: () => this._enabledSections(),
+            columnsPreference: () => this._settings?.get_int('columns') ?? 6,
+            bounds,
+            headerAllowance: HEADER_ALLOWANCE,
+        });
+        this._previews.enable();
+    }
+
+    // Which section a workspace preview stands for: its own with a workspace
+    // per section, the current one on the single workspace that carries the
+    // surface otherwise.
+    _previewSectionFor(index) {
+        if (index === null || index === undefined)
+            return null;
+        if (this._workspacesMode())
+            return this._sectionForWorkspace(index);
+        return index === this._targetWorkspace() ? this._sectionKey : null;
     }
 
     _buildHeader() {
@@ -449,6 +476,8 @@ export class GnomeflixApp {
         this._settings?.set_string('last-section', key);
         this._library.showSection(key, this._sections[key] ?? [], {animate: true});
         this._header.setLibraryMode(key, true);
+        // On one workspace the preview stands for whatever is on screen now.
+        this._previews?.invalidate();
     }
 
     // Library -> detail. The tile's artwork flies to the hero slot while the

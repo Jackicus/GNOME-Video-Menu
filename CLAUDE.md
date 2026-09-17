@@ -58,6 +58,7 @@ src/
 │   ├── app.js             #   GnomeflixApp: surface, header, navigation, transitions
 │   ├── libraryView.js     #   the tile grid for one section
 │   ├── detailView.js      #   one item: hero, facts, synopsis, group tabs, list/grid
+│   ├── overviewPreview.js #   the same surface, copied into the overview's workspace previews
 │   ├── widgets.js         #   tiles, rows, pills, segmented switcher, placeholders
 │   ├── anim.js            #   the motion vocabulary (durations, curves, helpers)
 │   ├── shape.js           #   the shape vocabulary: one corner radius, scaled per part
@@ -132,6 +133,14 @@ would collapse those empty workspaces, so `app.js` marks them with the same
 `_keepAliveId` the shell's workspace tracker uses during drag-and-drop, and
 releases them on disable.
 
+The overview does not show the desktop at all — each workspace preview builds
+its own wallpaper actor — so `overviewPreview.js` puts a static, non-interactive
+copy of each section's library into the preview that section owns, and a clone
+of it into the matching thumbnail in the strip. The copies live and die with one
+overview, since the shell destroys its previews when it closes, and each is
+built only as deep as the preview shows: the grid does not scroll in a picture,
+so only the first few rows are worth laying out.
+
 ## Design rules
 
 - **Motion copies the shell.** `anim.js` holds the only durations and curves in
@@ -175,10 +184,21 @@ releases them on disable.
   only.
 - **A freshly shown actor has no allocation until the next frame.** Measuring it
   for a clone flight yields NaN; `anim.js` `allocateNow()` lays it out first.
-- **`_backgroundGroup` and `_keepAliveId` are private API.** Both are
+- **`_backgroundGroup` and `_keepAliveId` are private API**, and so is every
+  path `overviewPreview.js` walks to reach the overview's previews
+  (`controls._workspacesDisplay._workspacesViews`, a workspace's `_background`
+  and its `_backgroundGroup`, `controls._thumbnailsBox._thumbnails`). All are
   underscore-prefixed shell internals that can change between releases. If
   rendering breaks after a GNOME upgrade look at the first; if section
-  workspaces start collapsing, at the second (`_applyWorkspaceMode` in `app.js`).
+  workspaces start collapsing, at the second (`_applyWorkspaceMode` in
+  `app.js`); if the overview goes empty again, at the third.
+- **A preview's background group is the monitor, allocated small.** It is the
+  box the wallpaper gets, stretched in x and y independently while the overview
+  animates, and it is re-allocated without reliably notifying its size — so the
+  copy reads the scale back in its own `vfunc_allocate` rather than watching a
+  signal, and asks for no size of its own, or the workspace is stretched out of
+  shape around it. A `Clutter.Clone` paints its source through the source's own
+  transform, so the thumbnail's clone has that scale undone again.
 - **Never hardcode the repo path.** Resolve paths from `this.path` /
   `this.dir.get_uri()` in JS and `__file__` in Python — the extension has to work
   from the installed copy, not just the symlink. Modules under `lib/` run from a
