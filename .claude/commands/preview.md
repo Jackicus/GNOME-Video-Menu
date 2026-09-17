@@ -9,13 +9,14 @@ user is watching the mirror window, so narrate with `say` before each step.
 
 Requested: $ARGUMENTS
 
-1. `./scripts/nested.sh start 1600x900` (reuses one if already running; opens the
-   mirror window on the desktop).
-2. If something specific was requested above, `say` it, then `click` through to it.
-   Switcher tabs slide workspaces, so wait about a second before the next shot.
-3. `./scripts/nested.sh shot` and **Read the PNG**.
-4. Describe what's actually on screen — layout, spacing, anything visibly broken.
-5. `./scripts/nested.sh stop` when done, even if a step failed.
+1. `./scripts/nested.sh start` (reuses one if already running; opens the mirror
+   window on the desktop; Gnomeflix is ACTIVE when it returns).
+2. In **one** `./scripts/nested.sh do …` call: `say` and `click` through to anything
+   requested above (switcher tabs slide workspaces — `wait 1` after one), then
+   `shot` into your scratchpad.
+3. **Read the PNG** and describe what's actually on screen — layout, spacing,
+   anything visibly broken.
+4. `./scripts/nested.sh stop` when done, even if a step failed. It closes the mirror.
 
 Check `./scripts/nested.sh logs` if the screenshot looks wrong or unchanged; a JS
 exception leaves the previous UI up and reads as "nothing happened".

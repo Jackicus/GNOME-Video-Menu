@@ -1,156 +1,128 @@
 ---
 name: drive-extension
-description: Launch a throwaway nested GNOME Shell, load Gnomeflix into it, click through the UI and capture screenshots, then shut it down. Use whenever a change needs to be SEEN rather than just compiled — layout, spacing, colours, animation end-states, navigation between the Library and Detail views, the section switcher — or when a change is risky enough that it should not be tried on the real desktop first. Also the way to test anything needing a fresh shell start, such as a new UUID, an extension.js edit, or a metadata.json change. The nested shell is mirrored live in a window on the user's desktop, so narrate what you do with `say` — the user is watching.
+description: Run Gnomeflix in a throwaway nested GNOME Shell, mirrored live on the user's desktop — click through it, screenshot it, then shut it down. Use whenever a change must be SEEN (layout, spacing, colour, animation end-states, Library/Detail navigation, the section switcher, the overview copies), or needs a fresh shell start (extension.js, metadata.json, a new UUID).
 ---
 
 # Driving Gnomeflix in a nested shell
 
 Gnomeflix renders onto the desktop background, so the only way to verify a visual
-change is to look at it. A nested GNOME Shell is a complete second shell with its
-own session bus and virtual monitor. It reads the same installed extension, but if
-your code throws during `enable()` it takes down the *nested* shell — the user's
-real session never notices.
+change is to look at it. The nested shell is a complete second GNOME Shell with its
+own session bus and virtual monitor, reading the same installed extension; if the
+code throws during `enable()` it takes down the *nested* shell, never the user's.
 
-It runs headless (this mutter build has no windowed backend), but `start` also
-opens a **live mirror window on the user's real desktop**: a PipeWire screencast
-of the nested monitor with the cursor embedded, at full frame rate, so animations
-show as they really are. Two people are looking at it: you through screenshots,
-the user through that window. Drive it so both can follow.
+It runs headless, and `start` opens a **live mirror window on the user's real
+desktop** so they can watch. Two people are looking: you through screenshots, the
+user through that window. Drive it so both can follow.
 
-## Lifecycle — always close what you open
+## The loop
 
 ```bash
-./scripts/nested.sh start 1600x900    # or: make nested. Opens the mirror too.
-./scripts/nested.sh say "Baseline before the change"
-./scripts/nested.sh shot /tmp/before.png
-# ... edit src/, then:
-./scripts/nested.sh say "Reloading with the new stylesheet"
+S=/tmp/claude-1000/...scratchpad        # your scratchpad; keep shots out of the repo
+./scripts/nested.sh start               # ~2 s; Gnomeflix is ACTIVE when it returns
+./scripts/nested.sh do "say Baseline" "shot $S/before.png"
+# ... edit src/ ...
 ./scripts/nested.sh reload
-./scripts/nested.sh shot /tmp/after.png
-./scripts/nested.sh stop              # or: make nested-stop. Closes the mirror.
+./scripts/nested.sh do "say After the stylesheet change" "shot $S/after.png"
+./scripts/nested.sh stop                # closes the mirror window too
 ```
 
-**Keep one nested shell up while iterating** and `reload` into it between
-edits; that is the fast loop. But also **`stop` + `start` at least once before
-calling a change done**: a reload keeps the old workspaces, the old dconf
-snapshot and whatever the previous build left on screen, and only a fresh start
-exercises `extension.js`, the enable path and first-frame layout the way a login
-does. **Always `stop` when the task is finished**, including when a check fails
-— the user cannot use the mirror window anyway, and a leaked nested shell keeps
-a gnome-shell, a dbus-daemon and a screencast alive. `status` says whether one is
-already up; `start` reuses it.
+Then **Read the PNGs** and say what actually differs. If nothing visibly changed,
+say so; do not assume the edit worked.
 
-`start --headless` skips the mirror, for when nobody is watching.
+## Batch with `do` — one call per interaction
 
-## Narrate for the watcher
-
-Before every click, reload or check, run `say` with a short present-tense phrase
-of what is about to happen. It appears as the shell's own OSD banner inside the
-nested shell, so it shows in the mirror and in your screenshots alike:
+`do` runs every step over a single connection and input session, so a whole
+walkthrough is **one** tool call, and it stops at the first failing step:
 
 ```bash
-./scripts/nested.sh say "Opening Black Clover"
-./scripts/nested.sh click 125 280
-./scripts/nested.sh say "Switching to the Extras tab"
-./scripts/nested.sh click 460 374
+./scripts/nested.sh do \
+  "say Opening the first show" "click 120 275" "wait 0.6" \
+  "say Switching to season 2"  "click 460 374" "wait 0.3" \
+  "shot $S/season2.png"
 ```
 
-Keep it to one line, no more than about 40 characters, and say what you are
-looking for when it is a check ("Checking the hero lands on the poster").
-
-## Commands
-
-| Command | Does |
+| Step | Does |
 |---|---|
-| `start [WxH]` | Start headless (default `1600x900`) and open the mirror. Installs the extension first if needed. |
-| `start --headless [WxH]` | Same, without the mirror window |
-| `mirror on\|off` | Open / close the live mirror window on the real desktop |
-| `say TEXT` | Flash TEXT as an OSD banner in the nested shell |
-| `shot [FILE]` | Screenshot to PNG; prints the path. Defaults under `dist/`. |
-| `click X Y` | Click at desktop coordinates |
-| `move X Y` | Move the pointer there without clicking, to see hover states in the next `shot` |
-| `key KEYSYM` | `Escape`, `Return`, arrows, a single character, or a chord: `Super+Page_Down` switches workspace |
-| `overview on\|off` | Show/hide the Activities overview |
-| `reload` | disable/enable Gnomeflix *inside* the nested shell, picking up `src/` edits |
-| `run CMD...` | Run any command against the nested shell's bus |
-| `logs [N]` | The nested shell's own output — where exceptions land |
-| `status` | Running? mirror open? is Gnomeflix ACTIVE? |
-| `stop` | Close the mirror, terminate the shell, clean up |
+| `say TEXT` | Banner in the nested shell (≤ ~40 chars). Put one before every click or check. |
+| `click X Y` / `move X Y` | Click / hover at desktop coordinates |
+| `key KEYSYM` | `Escape`, `Return`, arrows, one character, or a chord like `Super+Page_Down` |
+| `wait SECS` | Let an animation land: ~1 s after a switcher tab (workspace slide + tile stagger), ~0.6 s after opening or closing an item |
+| `shot [FILE [X Y W H]]` | Screenshot, or **just a region** — crop to what you are checking (a header strip, one tile) rather than reading 1600×900 every time |
+| `overview on\|off` | Show/hide the overview. While on, shots and clicks act on it (for `overviewPreview.js`); nothing dismisses it until `off`. |
 
-After `shot`, **Read the PNG** — that is the point. Don't report a visual change as
-working without having looked at it. The mirror is for the user; the screenshot
-is for you.
+The same steps exist as single commands (`./scripts/nested.sh click X Y`, …) for a
+one-off; prefer `do`. Other commands: `status`, `reload`, `logs [N] [--all]`,
+`mirror on|off`, `run CMD…` (against the nested bus), `start --headless [WxH]`.
 
-## Reading the screenshot
+## Closing what you open
 
-At 1600x900 the surface fills the work area below the top panel. Roughly:
+**`stop` when the task is finished — including when a check failed.** It closes the
+mirror window, the shell, its bus and the screencast. Keep one shell up while
+iterating and `reload` into it; `start` reuses a running one.
 
-- Header: title top-left; the section switcher (TV Shows / Films / Music / Photos
-  / Documents) top-right at y ≈ 83. With five tabs it starts further left; take a
-  screenshot and measure the tab centres before clicking them.
-- Library grid, 2:3 posters: row 1 centres y ≈ 275, row 2 y ≈ 605; columns start
-  at x ≈ 120 with a ≈ 193 px pitch (8 columns at this size).
-- Detail pane: back button at (48, 83); season/group tabs at y ≈ 374 starting
-  x ≈ 372; episode rows from y ≈ 430 in ≈ 54 px steps; Play at (177, 562).
+Backstops, so a forgotten `stop` never strands a window on the user's desktop:
+- the mirror window closes by itself when the nested shell stops or crashes;
+- a shell started from a Claude Code session stops itself after 10 minutes with no
+  `nested.sh` command (`GNOMEFLIX_NESTED_IDLE=<seconds>` at `start`, `0` = never);
+- the project's SessionEnd hook stops it when that session ends.
 
-Re-measure from a fresh screenshot rather than trusting these if the columns
-setting, the accent, the enabled sections or the geometry changed.
+Do not rely on them — they are for accidents. If the idle stop hit mid-task,
+`start` again (~2 s).
 
-Navigation is two levels: Library → Detail. Seasons are tabs inside the detail
-pane, not a separate view.
+**`stop` + `start` at least once before calling a change done.** `reload` keeps the
+old workspaces, dconf snapshot and whatever the previous build left on screen; only
+a fresh start exercises `extension.js`, the enable path and first-frame layout the
+way a login does. Edits to `extension.js` or `metadata.json` *need* one.
 
-In the default `layout-mode` (`workspaces`) each section is its own workspace,
-so clicking a switcher tab runs the shell's workspace slide (about 250 ms) and
-the tiles stagger in after it. Wait ~1 s before the next `shot`. The top-left
-workspace indicator and `overview on` show whether the section workspaces are
-being kept alive. Switching workspace always drops back to that section's
-library, even from a detail view.
+## Reading the screen (1600×900)
 
-## Verifying a change properly
+Measure from a fresh screenshot if the columns setting, enabled sections, accent or
+geometry changed. Roughly:
 
-1. `say` what you are about to compare, then `shot` before the edit.
-2. Edit `src/`.
-3. `say`, `reload`, then `shot` again.
-4. Read both PNGs and say what actually differs. If nothing visibly changed, say so
-   — do not assume the edit worked.
-5. `logs` if anything looks wrong; a JS exception during enable leaves the old UI on
-   screen and is easy to mistake for "no change".
-6. `stop` when the task is done.
+- **Header**: title top-left; switcher top-right at y ≈ 83. With all six sections the
+  tab centres are TV Shows ≈ 1012, Films ≈ 1115, Music ≈ 1205, Photos ≈ 1300,
+  Documents ≈ 1410, Games ≈ 1520. Header strip region: `0 30 1600 110`.
+- **Library grid**, 2:3 posters: row 1 centres y ≈ 275, row 2 y ≈ 605; columns from
+  x ≈ 120 with a ≈ 193 px pitch (8 columns).
+- **Detail pane**: back button (48, 83); group tabs y ≈ 374 from x ≈ 372; rows from
+  y ≈ 430 in ≈ 54 px steps; Play (177, 562).
+- **Empty library**: a centred placeholder with an Open Settings button — normal
+  until a section has been pointed at a folder and scanned.
 
-The preferences window can be driven too:
-`./scripts/nested.sh run gnome-extensions prefs gnomeflix@jackt &` opens it inside
-the nested session, where the mirror and `shot` both show it.
+In `workspaces` layout mode each switcher tab slides to that section's workspace,
+and switching workspace always drops back to that section's library.
+
+## When it looks wrong
+
+`logs` first. A JS exception during enable leaves the previous UI on screen, which
+reads as "no change". `logs` hides D-Bus activation and portal chatter; `logs 200
+--all` shows everything. `[Gnomeflix]` lines are the extension's own.
 
 ## Gotchas
 
-- **The overview covers everything.** The nested shell boots into the Activities
-  overview, which hides the desktop surface Gnomeflix draws on. `shot`, `click` and
-  `say` dismiss it automatically; if you call the driver directly you must do it
-  yourself.
-- **Never move the pointer to the top-left.** That is the Activities hot corner and
-  it throws the shell back into the overview. `click` pins from the bottom-right
-  corner for exactly this reason.
-- **A screen-sharing indicator appears in the top bar** while input is being
-  injected or the mirror is open — it is the Mutter RemoteDesktop / ScreenCast
-  session, not a bug in the extension.
-- **Screenshots and banners need a bus name.** `org.gnome.Shell.Screenshot` and
-  `ShowOSD` refuse unknown callers, so `nested_driver.py` owns
-  `org.gnome.SettingsDaemon.MediaKeys` on the nested bus to get through. That name
-  is unclaimed on a private throwaway bus. Do not try this against the real session.
-- **`Eval` is blocked** (unsafe mode off), so there is no arbitrary-JS escape hatch.
-  Drive it through input and D-Bus properties like a user would.
-- **dconf is shared with the real session, and the nested one can clobber it.**
-  The nested session starts its own `dconf-service`, which caches the database
-  when it starts and rewrites the whole file on its first write. Any setting
-  changed from the *real* session after the nested shell started (e.g. via
-  `gsettings --schemadir src/schemas set ...`) is silently lost the moment the
-  nested extension writes `last-section`. So: change settings **before** `start`
-  or **after** `stop`, never in between, and re-check with `gsettings ...
-  list-recursively org.gnome.shell.extensions.gnomeflix` once the nested shell is
-  down. Put `last-section` back to `tv` when you are done.
-- **New UUIDs still need a fresh start**, and so do edits to `extension.js` or
-  `metadata.json` (the shell caches both for its lifetime). For a nested shell
-  that is `stop` + `start`, about two seconds — the whole reason this exists.
-  `reload` is enough for everything under `lib/`, the stylesheet and the schema.
-- **The mirror needs GStreamer's PipeWire plugin** (`gst-plugin-pipewire`). If
-  `mirror on` fails, fall back to `--headless` and screenshots, and say so.
+- **dconf is shared with the real session, and the nested one can clobber it.** The
+  nested `dconf-service` caches the database at start and rewrites the whole file
+  on its first write, so a setting changed from the real session while a nested
+  shell runs is silently lost once the nested extension writes `last-section`.
+  Change settings **before** `start` or **after** `stop`, then re-check with
+  `gsettings --schemadir src/schemas list-recursively org.gnome.shell.extensions.gnomeflix`.
+  Put `last-section` back to `tv` when done.
+- **`start` enables Gnomeflix** if dconf doesn't list it — which writes
+  `enabled-extensions`, so the real session will load it at the next login too.
+- **Never click or hover at the top-left.** It is the Activities hot corner and
+  throws the shell into the overview. Pointer motion is absolute (the input session
+  is linked to a screencast of the monitor), so a point only lands there if asked
+  to; coordinates outside the monitor are rejected.
+- **A screen-sharing indicator in the top bar** is the input/screencast session, not
+  an extension bug.
+- **`Eval` is blocked** (unsafe mode off): no arbitrary-JS escape hatch. Drive it
+  through input and D-Bus properties like a user would.
+- **Screenshots and banners borrow a bus name** (`org.gnome.SettingsDaemon.MediaKeys`,
+  unclaimed on the throwaway bus) because the shell refuses unknown callers. Never
+  try that against the real session.
+- **Other extensions load too** (the nested shell reads the same extension list), so
+  their log lines and top-bar icons appear alongside Gnomeflix.
+- **The mirror needs GStreamer's PipeWire plugin.** If `mirror on` fails, use
+  `start --headless` and screenshots, and tell the user.
+- **Driving the prefs window:** `./scripts/nested.sh run gnome-extensions prefs gnomeflix@jackt &`
+  opens it inside the nested session, where `shot` and the mirror both show it.

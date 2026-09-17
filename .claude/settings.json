@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/nested.sh session-end",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
