@@ -57,6 +57,12 @@ WATCH_PID_FILE="$RUN_DIR/watchdog-pid"
 ACTIVITY_FILE="$RUN_DIR/activity"
 OWNER_FILE="$RUN_DIR/owner-session"
 IDLE_FILE="$RUN_DIR/idle-seconds"
+GUARD_OWNED_FILE="$RUN_DIR/owns-crash-guard"
+# GNOME Shell creates this for its first 60 s; if the shell crashes while it
+# exists, the systemd unit disables every extension. The nested shell shares the
+# runtime dir, so it creates the REAL session's copy -- and a stop inside those
+# 60 s leaves it behind, arming that for the user's next real crash.
+CRASH_GUARD="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnome-shell-disable-extensions"
 IDLE_SECS="${GNOMEFLIX_NESTED_IDLE:-600}"
 # The real session's display and bus, captured before nested_env overrides them:
 # the mirror window has to open on the desktop the user is looking at.
@@ -158,6 +164,9 @@ cmd_start() {
     mkdir -p "$RUN_DIR"
     : > "$LOG_FILE"
     echo "$geometry" > "$GEOM_FILE"
+    # If the real shell's own guard is already there (it logged in under a minute
+    # ago), it is not ours to remove.
+    [[ -e "$CRASH_GUARD" ]] || touch "$GUARD_OWNED_FILE"
     # Only a shell a Claude Code session started is that session's to clean up.
     [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]] && echo "$CLAUDE_CODE_SESSION_ID" > "$OWNER_FILE"
 
@@ -283,6 +292,7 @@ cmd_stop() {
         info "No nested shell running."
     fi
     kill_strays
+    [[ -e "$GUARD_OWNED_FILE" ]] && rm -f "$CRASH_GUARD"
     rm -rf "$RUN_DIR"
 }
 

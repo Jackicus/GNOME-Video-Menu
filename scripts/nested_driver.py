@@ -212,14 +212,17 @@ class Driver:
         x, y = int(x), int(y)
         if not (0 <= x < self.width and 0 <= y < self.height):
             raise StepError(f"({x}, {y}) is outside the {self.width}x{self.height} monitor")
-        self.ensure_desktop()
         self._session()
         if not self._pointer_ready:
             # The very first event on a fresh virtual pointer is dropped while the
-            # device is being created. A throwaway motion absorbs that.
+            # device is being created -- and in a freshly started shell, creating it
+            # springs the Activities hot corner. So make the device first, give the
+            # overview time to start opening, and only then check for it; checking
+            # before let the overview reopen behind the check and eat the click.
             self._notify("NotifyPointerMotionAbsolute", "(sdd)", self._stream, float(x), float(y))
-            time.sleep(0.1)
+            time.sleep(0.3)
             self._pointer_ready = True
+        self.ensure_desktop()
         self._notify("NotifyPointerMotionAbsolute", "(sdd)", self._stream, float(x), float(y))
         # Let the actor under the pointer pick up hover/reactive state.
         time.sleep(0.2)
