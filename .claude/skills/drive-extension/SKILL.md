@@ -1,6 +1,6 @@
 ---
 name: drive-extension
-description: Run Gnomeflix in a throwaway nested GNOME Shell, mirrored live on the user's desktop — click through it, screenshot it, then shut it down. Use whenever a change must be SEEN (layout, spacing, colour, animation end-states, Library/Detail navigation, the section switcher, the overview copies), or needs a fresh shell start (extension.js, metadata.json, a new UUID).
+description: Run Gnomeflix in a throwaway nested GNOME Shell, mirrored live on the user's desktop — click through it, screenshot it, then shut it down. Use whenever a change must be SEEN (layout, spacing, colour, animation end-states, Home/Library/Detail navigation, the overview and workspace-slide clones), or needs a fresh shell start (extension.js, metadata.json, a new UUID).
 ---
 
 # Driving Gnomeflix in a nested shell
@@ -46,7 +46,7 @@ walkthrough is **one** tool call, and it stops at the first failing step:
 | `say TEXT` | Banner in the nested shell (≤ ~40 chars). Put one before every click or check. |
 | `click X Y` / `move X Y` | Click / hover at desktop coordinates |
 | `key KEYSYM` | `Escape`, `Return`, arrows, one character, or a chord like `Super+Page_Down` |
-| `wait SECS` | Let an animation land: ~1 s after a switcher tab (workspace slide + tile stagger), ~0.6 s after opening or closing an item |
+| `wait SECS` | Let an animation land: ~1 s after anything that changes workspace (a launcher, the Home pill), ~0.6 s after opening or closing an item |
 | `shot [FILE [X Y W H]]` | Screenshot, or **just a region** — crop to what you are checking (a header strip, one tile) rather than reading 1600×900 every time |
 | `overview on\|off` | Show/hide the overview. While on, shots and clicks act on it (for `overviewPreview.js`); nothing dismisses it until `off`. |
 
@@ -79,18 +79,26 @@ way a login does. Edits to `extension.js` or `metadata.json` *need* one.
 Measure from a fresh screenshot if the columns setting, enabled sections, accent or
 geometry changed. Roughly:
 
-- **Header**: title top-left; switcher top-right at y ≈ 83. With all six sections the
-  tab centres are TV Shows ≈ 1012, Films ≈ 1115, Music ≈ 1205, Photos ≈ 1300,
-  Documents ≈ 1410, Games ≈ 1520. Header strip region: `0 30 1600 110`.
-- **Library grid**, 2:3 posters: row 1 centres y ≈ 275, row 2 y ≈ 605; columns from
-  x ≈ 120 with a ≈ 193 px pitch (8 columns).
+- **Home menu** (what a fresh start shows): launchers
+  in a centred row at y ≈ 465; with all six sections their centres are x ≈ 200, 440,
+  680, 920, 1160, 1400. Clicking one opens that section on a new workspace, where the
+  **Home** pill at (1520, 83) closes it again.
+  `key Super+Page_Up` goes back to Home and leaves the section open.
+- **Header**: title top-left; Home pill top-right. Header strip region: `0 30 1600 110`.
+- **Library grid**, 2:3 posters: row 1 centres y ≈ 250, row 2 y ≈ 540; columns from
+  x ≈ 105 with a ≈ 170 px pitch (9 columns).
 - **Detail pane**: back button (48, 83); group tabs y ≈ 374 from x ≈ 372; rows from
   y ≈ 430 in ≈ 54 px steps; Play (177, 562).
 - **Empty library**: a centred placeholder with an Open Settings button — normal
   until a section has been pointed at a folder and scanned.
 
-In `workspaces` layout mode each switcher tab slides to that section's workspace,
-and switching workspace always drops back to that section's library.
+Switching workspace drops back to that section's library. A slide is over in
+250 ms and a `shot` takes longer than that to fire, so a frame caught mid-slide
+is luck: `wait 0.12` after the click catches its tail end at best.
+
+`reload` does not recompile the schema; after editing the `.gschema.xml` run
+`glib-compile-schemas src/schemas` and `stop` + `start`. A `say` text must not
+contain an apostrophe — steps are shell-split.
 
 ## When it looks wrong
 
@@ -103,10 +111,9 @@ reads as "no change". `logs` hides D-Bus activation and portal chatter; `logs 20
 - **dconf is shared with the real session, and the nested one can clobber it.** The
   nested `dconf-service` caches the database at start and rewrites the whole file
   on its first write, so a setting changed from the real session while a nested
-  shell runs is silently lost once the nested extension writes `last-section`.
+  shell runs is silently lost once anything in the nested one writes a key.
   Change settings **before** `start` or **after** `stop`, then re-check with
   `gsettings --schemadir src/schemas list-recursively org.gnome.shell.extensions.gnomeflix`.
-  Put `last-section` back to `tv` when done.
 - **`start` enables Gnomeflix** if dconf doesn't list it — which writes
   `enabled-extensions`, so the real session will load it at the next login too.
 - **Never click or hover at the top-left.** It is the Activities hot corner and

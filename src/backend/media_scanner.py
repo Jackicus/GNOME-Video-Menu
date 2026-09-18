@@ -2,11 +2,20 @@
 
 One scanner per section. They know nothing about the network; metadata.py
 enriches what they return.
+
+Every scanner takes the section's previous items keyed by id. Walking a folder
+and stat'ing each file in it is the bulk of a rescan, and almost nothing has
+changed between one scan and the next, so an item whose folder still carries
+the signature recorded last time reuses the file list it already had. The
+metadata fields are always rebuilt from scratch, so switching provider still
+refetches everything.
 """
 
 import hashlib
 import os
 import re
+
+from metadata import cache_local_art
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".webm", ".m4v", ".mov", ".wmv"}
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".wma"}
@@ -68,12 +77,50 @@ def files_with_ext(path, extensions):
     ]
 
 
+def folder_signature(folder, recursive=True):
+    """A string that changes when what is in `folder` changes.
+
+    A directory's mtime moves whenever a name is added, removed or renamed
+    inside it, so the newest mtime across the folder (and, recursively, its
+    subfolders) stands in for "something appeared or went away in here". The
+    one edit it cannot see is a file rewritten in place under the same name,
+    which leaves a stale size behind until `--force` re-reads everything.
+    """
+    newest = 0.0
+    seen = 0
+    for root, dirs, _files in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        seen += 1
+        try:
+            newest = max(newest, os.path.getmtime(root))
+        except OSError:
+            pass
+        if not recursive:
+            break
+    return f"{seen}:{newest:.3f}"
+
+
+def reusable(previous, item_id, signature, field):
+    """The cached `field` of a previous item whose folder has not changed."""
+    if not previous or not signature:
+        return None
+    entry = previous.get(item_id)
+    if not entry or entry.get("scan_sig") != signature:
+        return None
+    return entry.get(field)
+
+
 def find_local_cover(folder):
-    """A cover image kept beside the media (cover.jpg, folder.png, ...)."""
+    """A cover image kept beside the media (cover.jpg, folder.png, ...).
+
+    What comes back is the scaled copy in the artwork cache, not the file in the
+    media folder: the shell reads artwork on the compositor thread and must
+    never be sent into a media folder to do it.
+    """
     for name in files_with_ext(folder, IMAGE_EXTENSIONS):
         stem = os.path.splitext(name)[0].lower()
         if stem in COVER_NAMES or stem.startswith(COVER_NAMES):
-            return os.path.join(folder, name)
+            return cache_local_art(os.path.join(folder, name))
     return None
 
 
@@ -113,26 +160,33 @@ def _video_entries(folder):
 # --------------------------------------------------------------------------
 # TV shows: <root>/<Show>/[Season N/]<episode>.mkv
 # --------------------------------------------------------------------------
-def scan_tv(root):
+def scan_tv(root, previous=None):
     shows = []
     for name in subdirs(root):
         folder = os.path.join(root, name)
-        episodes = _video_entries(folder)
+        show_id = slug(name)
+        signature = folder_signature(folder)
+        episodes = reusable(previous, show_id, signature, "episodes")
+        if episodes is None:
+            episodes = _video_entries(folder)
+            for ep in episodes:
+                # Legacy display form the UI groups by: "[Extras] OP01 - ..."
+                # for named subfolders; plain for season folders (grouped by
+                # SxxEyy). Only ever applied to a freshly walked list: a reused
+                # one carries its prefixes already.
+                group = ep["group"]
+                prefix = f"[{group}] " if group and not group.lower().startswith("season") else ""
+                ep["title"] = f"{prefix}{ep['title']}"
         if not episodes:
             continue
-        for ep in episodes:
-            # Legacy display form the UI groups by: "[Extras] OP01 - ..." for
-            # named subfolders; plain for season folders (grouped by SxxEyy).
-            group = ep["group"]
-            prefix = f"[{group}] " if group and not group.lower().startswith("season") else ""
-            ep["title"] = f"{prefix}{ep['title']}"
         title, year = split_year(name)
         shows.append({
-            "id": slug(name),
+            "id": show_id,
             "kind": "tv",
             "title": title,
             "year": year,
             "folder_path": folder,
+            "scan_sig": signature,
             "episodes": episodes,
             "episode_count": len(episodes),
             "poster_path": find_local_cover(folder),
@@ -146,7 +200,7 @@ def scan_tv(root):
 # --------------------------------------------------------------------------
 # Films: <root>/<Film (Year)>/<file>.mkv  or  <root>/<Film (Year)>.mkv
 # --------------------------------------------------------------------------
-def scan_films(root, exclude=()):
+def scan_films(root, exclude=(), previous=None):
     """Films under root. Folders in `exclude` (e.g. the TV shows folder, when it
     lives inside the films folder) are skipped rather than read as films."""
     skip = {os.path.realpath(p) for p in exclude if p}
@@ -155,12 +209,18 @@ def scan_films(root, exclude=()):
         folder = os.path.join(root, name)
         if os.path.realpath(folder) in skip:
             continue
-        files = _video_entries(folder)
+        film_id = slug(name)
+        signature = folder_signature(folder)
+        files = reusable(previous, film_id, signature, "files")
+        if files is None:
+            files = _video_entries(folder)
         if not files:
             continue
         title, year = split_year(name)
-        films.append(_film_entry(name, title, year, folder, files))
+        films.append(_film_entry(name, title, year, folder, files, signature))
 
+    # A film that is one loose file has nothing to walk, so it is always read
+    # afresh; no signature means nothing ever reuses it either.
     for fname in files_with_ext(root, VIDEO_EXTENSIONS):
         stem = os.path.splitext(fname)[0]
         title, year = split_year(stem)
@@ -169,13 +229,13 @@ def scan_films(root, exclude=()):
             "filename": fname, "path": fpath, "title": stem, "group": None,
             "has_subtitles": False, "size_mb": file_size_mb(fpath),
         }]
-        films.append(_film_entry(stem, title, year, root, files))
+        films.append(_film_entry(stem, title, year, root, files, None))
 
     films.sort(key=lambda f: natural_sort_key(f["title"]))
     return films
 
 
-def _film_entry(name, title, year, folder, files):
+def _film_entry(name, title, year, folder, files, signature):
     # The main feature is the largest file; extras and samples are smaller.
     main = max(files, key=lambda f: f["size_mb"])
     return {
@@ -184,6 +244,7 @@ def _film_entry(name, title, year, folder, files):
         "title": title,
         "year": year,
         "folder_path": folder,
+        "scan_sig": signature,
         "files": files,
         "main_path": main["path"],
         "poster_path": find_local_cover(folder),
@@ -200,31 +261,38 @@ def _film_entry(name, title, year, folder, files):
 TRACK_RE = re.compile(r"^\s*(?:\d+\s*[-.]\s*)?(\d{1,3})\s*[-. ]+\s*(.+)$")
 
 
-def scan_music(root):
+def scan_music(root, previous=None):
     albums = []
     for folder, parent_name in _album_folders(root):
-        tracks = []
-        for fname in files_with_ext(folder, AUDIO_EXTENSIONS):
-            stem = os.path.splitext(fname)[0]
-            m = TRACK_RE.match(stem)
-            tracks.append({
-                "filename": fname,
-                "path": os.path.join(folder, fname),
-                "title": m.group(2).strip() if m else stem,
-                "track": int(m.group(1)) if m else None,
-                "size_mb": file_size_mb(os.path.join(folder, fname)),
-            })
+        name = os.path.basename(folder)
+        album_id = slug(f"{parent_name or ''}_{name}")
+        # Tracks sit directly in the album folder, so its own mtime is enough.
+        signature = folder_signature(folder, recursive=False)
+        tracks = reusable(previous, album_id, signature, "tracks")
+        if tracks is None:
+            tracks = []
+            for fname in files_with_ext(folder, AUDIO_EXTENSIONS):
+                stem = os.path.splitext(fname)[0]
+                m = TRACK_RE.match(stem)
+                path = os.path.join(folder, fname)
+                tracks.append({
+                    "filename": fname,
+                    "path": path,
+                    "title": m.group(2).strip() if m else stem,
+                    "track": int(m.group(1)) if m else None,
+                    "size_mb": file_size_mb(path),
+                })
         if not tracks:
             continue
-        name = os.path.basename(folder)
         title, year = split_year(name)
         albums.append({
-            "id": slug(f"{parent_name or ''}_{name}"),
+            "id": album_id,
             "kind": "album",
             "title": title,
             "artist": parent_name,
             "year": year,
             "folder_path": folder,
+            "scan_sig": signature,
             "tracks": tracks,
             "track_count": len(tracks),
             "poster_path": find_local_cover(folder),
@@ -253,53 +321,73 @@ def _album_folders(root):
 # --------------------------------------------------------------------------
 # Photos: <root>/<Album>/<image>.jpg (plus loose images in root as "Photos")
 # --------------------------------------------------------------------------
-def scan_photos(root, thumbnailer=None):
+def scan_photos(root, thumbnailer=None, previous=None):
     albums = []
     loose = files_with_ext(root, IMAGE_EXTENSIONS)
     if loose:
-        albums.append(_photo_album(os.path.basename(root) or "Photos", root, loose, thumbnailer))
+        album = _photo_album(
+            os.path.basename(root) or "Photos", root, thumbnailer, previous,
+            folder_signature(root, recursive=False), lambda: loose)
+        if album:
+            albums.append(album)
     for name in subdirs(root):
         folder = os.path.join(root, name)
-        images = []
-        for r, dirs, files in os.walk(folder):
-            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-            images.extend(
-                os.path.relpath(os.path.join(r, f), folder)
-                for f in sorted(files, key=natural_sort_key)
-                if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS and not f.startswith(".")
-            )
-        if images:
-            albums.append(_photo_album(name, folder, images, thumbnailer))
+        album = _photo_album(
+            name, folder, thumbnailer, previous,
+            folder_signature(folder), lambda f=folder: _image_names(f))
+        if album:
+            albums.append(album)
     return albums
 
 
-def _photo_album(name, folder, images, thumbnailer):
-    photos = []
-    for rel in images:
-        path = os.path.join(folder, rel)
-        try:
-            mtime = os.path.getmtime(path)
-        except OSError:
-            mtime = 0
-        photos.append({
-            "filename": os.path.basename(rel),
-            "path": path,
-            "title": os.path.splitext(os.path.basename(rel))[0],
-            "thumb_path": thumbnailer(path) if thumbnailer else path,
-            "size_mb": file_size_mb(path),
-            "mtime": mtime,
-        })
-    photos.sort(key=lambda p: -p["mtime"])
+def _image_names(folder):
+    """Every image under `folder`, recursively, as paths relative to it."""
+    images = []
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        images.extend(
+            os.path.relpath(os.path.join(root, f), folder)
+            for f in sorted(files, key=natural_sort_key)
+            if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS and not f.startswith(".")
+        )
+    return images
+
+
+def _photo_album(name, folder, thumbnailer, previous, signature, list_images):
+    """One album. `list_images` is only called when the folder has changed, so
+    an untouched album costs neither a walk nor a stat per photo."""
+    album_id = slug(folder)
+    photos = reusable(previous, album_id, signature, "photos")
+    if photos is None:
+        photos = []
+        for rel in list_images():
+            path = os.path.join(folder, rel)
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                mtime = 0
+            photos.append({
+                "filename": os.path.basename(rel),
+                "path": path,
+                "title": os.path.splitext(os.path.basename(rel))[0],
+                "thumb_path": thumbnailer(path, mtime) if thumbnailer else None,
+                "size_mb": file_size_mb(path),
+                "mtime": mtime,
+            })
+        photos.sort(key=lambda p: -p["mtime"])
+    if not photos:
+        return None
     title, year = split_year(name)
     return {
-        "id": slug(folder),
+        "id": album_id,
         "kind": "photos",
         "title": title,
         "year": year,
         "folder_path": folder,
+        "scan_sig": signature,
         "photos": photos,
         "photo_count": len(photos),
-        "poster_path": photos[0]["thumb_path"] if photos else None,
+        "poster_path": photos[0]["thumb_path"],
         "summary": None,
         "genres": [],
         "rating": None,
@@ -313,44 +401,61 @@ def _photo_album(name, folder, images, thumbnailer):
 # Documents folder can hold hundreds of thousands of files a few levels down,
 # and this is a desktop overview, not a file manager.
 # --------------------------------------------------------------------------
-def scan_documents(root):
+def scan_documents(root, previous=None):
     collections = []
     loose = files_with_ext(root, DOCUMENT_EXTENSIONS)
     if loose:
-        collections.append(_document_collection(os.path.basename(root) or "Documents", root, loose))
+        collections.append(_document_collection(
+            os.path.basename(root) or "Documents", root, previous,
+            folder_signature(root, recursive=False), lambda: loose))
     for name in subdirs(root):
         folder = os.path.join(root, name)
-        files = files_with_ext(folder, DOCUMENT_EXTENSIONS)
-        if files:
-            collections.append(_document_collection(name, folder, files))
+        # Only the folder's own files are listed, so its own mtime is enough.
+        collection = _document_collection(
+            name, folder, previous, folder_signature(folder, recursive=False),
+            lambda f=folder: files_with_ext(f, DOCUMENT_EXTENSIONS))
+        if collection:
+            collections.append(collection)
     return collections
 
 
-def _document_collection(name, folder, files):
-    docs = []
-    for fname in files[:MAX_DOCUMENTS_PER_COLLECTION]:
-        path = os.path.join(folder, fname)
-        try:
-            mtime = os.path.getmtime(path)
-        except OSError:
-            mtime = 0
-        docs.append({
-            "filename": fname,
-            "path": path,
-            "title": os.path.splitext(fname)[0],
-            "ext": os.path.splitext(fname)[1].lower().lstrip("."),
-            "size_mb": file_size_mb(path),
-            "mtime": mtime,
-        })
-    docs.sort(key=lambda d: -d["mtime"])
+def _document_collection(name, folder, previous, signature, list_files):
+    """One collection. A collection lists at most MAX_DOCUMENTS_PER_COLLECTION
+    files but reports how many there really are, so the total is cached beside
+    the listing rather than derived from it."""
+    collection_id = slug(folder)
+    docs = reusable(previous, collection_id, signature, "documents")
+    total = reusable(previous, collection_id, signature, "document_count") if docs is not None else None
+    if docs is None:
+        files = list_files()
+        if not files:
+            return None
+        total = len(files)
+        docs = []
+        for fname in files[:MAX_DOCUMENTS_PER_COLLECTION]:
+            path = os.path.join(folder, fname)
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                mtime = 0
+            docs.append({
+                "filename": fname,
+                "path": path,
+                "title": os.path.splitext(fname)[0],
+                "ext": os.path.splitext(fname)[1].lower().lstrip("."),
+                "size_mb": file_size_mb(path),
+                "mtime": mtime,
+            })
+        docs.sort(key=lambda d: -d["mtime"])
     return {
-        "id": slug(folder),
+        "id": collection_id,
         "kind": "documents",
         "title": name,
         "year": None,
         "folder_path": folder,
+        "scan_sig": signature,
         "documents": docs,
-        "document_count": len(files),
+        "document_count": total if total is not None else len(docs),
         "poster_path": None,
         "summary": None,
         "genres": [],

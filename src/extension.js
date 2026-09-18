@@ -10,9 +10,15 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 export default class GnomeflixExtension extends Extension {
     async enable() {
         this._runDir = null;
+        // disable() can arrive while the import is still pending, and would
+        // find no app to take down; the one built afterwards would then never
+        // be taken down at all.
+        const enabling = this._enabling = {};
         try {
             const runDir = this._stageLib();
             const module = await import(`file://${runDir}/app.js`);
+            if (this._enabling !== enabling)
+                return;
             this._app = new module.GnomeflixApp(this);
             this._app.enable();
             console.log(`[Gnomeflix] Enabled from ${runDir}`);
@@ -22,6 +28,7 @@ export default class GnomeflixExtension extends Extension {
     }
 
     disable() {
+        this._enabling = null;
         if (this._app) {
             try {
                 this._app.disable();

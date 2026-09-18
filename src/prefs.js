@@ -5,17 +5,22 @@ import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-// One page per media section, plus General. Kept in step with SECTIONS in
-// lib/library.js: the prefix names the GSettings keys (<prefix>-enabled,
-// <prefix>-path) and the key names the section in library.json.
+import {SECTIONS as LIBRARY_SECTIONS, readSections} from './lib/library.js';
+
+// One page per media section, plus General.
 //
-// A section normally has exactly one folder. Games have two — Steam's library
-// root and PCSX2's config folder, both auto-detected — so they carry a `paths`
-// list instead, which _pathSpecs() below flattens the single-folder case into.
-const SECTIONS = [
-    {
-        key: 'tv', prefix: 'tv-shows', title: 'TV Shows', lower: 'TV shows', icon: 'tv-symbolic', noun: 'shows',
-        flag: '--tv-path', xdg: null,
+// What a section *is* — its key, its GSettings prefix, its title, its icon and
+// the order the pages come in — is lib/library.js's SECTIONS, imported above,
+// so adding or renaming a section is one edit there rather than two that can
+// drift. What is added here is only what the preferences themselves need to
+// say about it.
+//
+// A section normally has exactly one folder, <prefix>-path. Games have two —
+// Steam's library root and PCSX2's config folder, both auto-detected — so they
+// name them in `paths`, which _pathSpecs() below flattens the single case into.
+const PAGES = {
+    tv: {
+        lower: 'TV shows', noun: 'shows', xdg: null,
         layout: 'One folder per show. Seasons can be subfolders ("Season 2") or SxxEyy in the file names.',
         online: 'Where artwork, synopsis, genres and ratings come from.',
         providers: [
@@ -24,9 +29,8 @@ const SECTIONS = [
             ['wikipedia', 'Wikipedia', 'No key needed. Poster and lead paragraph only.'],
         ],
     },
-    {
-        key: 'films', prefix: 'films', title: 'Films', lower: 'films', icon: 'video-x-generic-symbolic', noun: 'films',
-        flag: '--films-path', xdg: null,
+    films: {
+        lower: 'films', noun: 'films', xdg: null,
         layout: 'One folder or file per film, named "Title (Year)". The largest video in a folder is the feature.',
         online: 'Where posters, synopses, genres and ratings come from.',
         providers: [
@@ -34,43 +38,39 @@ const SECTIONS = [
             ['wikipedia', 'Wikipedia', 'No key needed. Poster and lead paragraph only. Used automatically when TMDB has no key.'],
         ],
     },
-    {
-        key: 'music', prefix: 'music', title: 'Music', lower: 'music', icon: 'audio-x-generic-symbolic', noun: 'albums',
-        flag: '--music-path', xdg: GLib.UserDirectory.DIRECTORY_MUSIC,
+    music: {
+        lower: 'music', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_MUSIC,
         layout: 'Album folders, optionally inside artist folders. A cover.jpg or folder.jpg beside the tracks is used as the artwork.',
         online: 'Missing album art comes from the iTunes Search API.',
     },
-    {
-        key: 'photos', prefix: 'photos', title: 'Photos', lower: 'photos', icon: 'image-x-generic-symbolic', noun: 'albums',
-        flag: '--photos-path', xdg: GLib.UserDirectory.DIRECTORY_PICTURES,
+    photos: {
+        lower: 'photos', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_PICTURES,
         layout: 'One folder per album. Loose images in the folder itself become an album too.',
         online: 'Photos never leave this computer; thumbnails are generated locally.',
     },
-    {
-        key: 'documents', prefix: 'documents', title: 'Documents', lower: 'documents', icon: 'x-office-document-symbolic', noun: 'collections',
-        flag: '--documents-path', xdg: GLib.UserDirectory.DIRECTORY_DOCUMENTS,
+    documents: {
+        lower: 'documents', noun: 'collections', xdg: GLib.UserDirectory.DIRECTORY_DOCUMENTS,
         layout: 'Each top-level folder is a collection of the documents directly inside it; loose files form one too. Deeper folders are not walked.',
         online: 'Documents never leave this computer.',
     },
-    {
-        key: 'games', prefix: 'games', title: 'Games', lower: 'games', icon: 'applications-games-symbolic', noun: 'games',
-        // Games are not a folder of media, so the section runs on its own flag
-        // and the two paths below only override auto-detection.
-        scanFlag: '--games',
+    games: {
+        lower: 'games', noun: 'games',
         paths: [
             {
-                key: 'steam-path', title: 'Steam library', flag: '--steam-path',
+                key: 'steam-path', title: 'Steam library',
                 hint: 'Auto-detected — ~/.steam/steam, ~/.local/share/Steam or the flatpak install',
             },
             {
-                key: 'pcsx2-path', title: 'PCSX2 configuration', flag: '--pcsx2-path',
+                key: 'pcsx2-path', title: 'PCSX2 configuration',
                 hint: 'Auto-detected — ~/.config/PCSX2 or the flatpak install',
             },
         ],
         layout: 'Installed Steam games come from Steam\'s own library files, including libraries on other drives. PS2 games come from the folders PCSX2.ini points at; covers come from its covers folder.',
         online: 'Steam artwork and descriptions come from Valve\'s public endpoints; PS2 games use IGDB when its credentials are set.',
     },
-];
+};
+
+const SECTIONS = LIBRARY_SECTIONS.map(section => ({...section, ...PAGES[section.key]}));
 
 export default class GnomeflixPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -99,34 +99,21 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
 
         const desktop = new Adw.PreferencesGroup({
             title: 'Desktop',
-            description: 'Gnomeflix draws straight onto the wallpaper of one workspace.',
+            description: 'Gnomeflix draws straight onto the wallpaper: a home menu on one workspace, and a workspace for each section you open from it.',
         });
         page.add(desktop);
 
-        const modes = ['single', 'workspaces'];
-        const layout = new Adw.ComboRow({
-            title: 'Layout',
-            subtitle: 'Where each section lives',
-            model: Gtk.StringList.new([
-                'All sections on one workspace',
-                'One workspace per section',
-            ]),
-            selected: Math.max(0, modes.indexOf(settings.get_string('layout-mode'))),
-        });
-        layout.connect('notify::selected', () => settings.set_string('layout-mode', modes[layout.selected] ?? 'single'));
-        desktop.add(layout);
-
         const workspace = new Adw.SpinRow({
             title: 'Workspace',
-            subtitle: 'The workspace that shows the library, or the first of them',
+            subtitle: 'The workspace that carries the home menu',
             adjustment: new Gtk.Adjustment({lower: 1, upper: 16, step_increment: 1, value: settings.get_int('workspace-index') + 1}),
         });
         workspace.connect('changed', () => settings.set_int('workspace-index', Math.round(workspace.get_value()) - 1));
         desktop.add(workspace);
 
         desktop.add(new Adw.ActionRow({
-            title: 'One workspace per section keeps those workspaces open',
-            subtitle: 'Swipe or use the switcher to move between TV Shows, Films, Music and Photos. Works with dynamic workspaces; with a fixed number, set enough in Settings → Multitasking.',
+            title: 'Workspaces Gnomeflix is using stay open',
+            subtitle: 'The home menu opens a workspace for a section when you pick it and closes it again from the section\'s Home button. With a fixed number of workspaces, set enough in Settings → Multitasking.',
             sensitive: false,
         }));
 
@@ -340,11 +327,8 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
     // One "Folder" row: what it is set to, a chooser and a clear button.
     _folderRow(state, section, spec) {
         const {settings} = state;
-        const row = new Adw.ActionRow({
-            title: spec.title,
-            subtitle: this._folderText(settings, spec),
-            activatable: true,
-        });
+        const row = new Adw.ActionRow({title: spec.title, activatable: true});
+        this._showFolder(row, settings, spec);
         const pick = new Gtk.Button({
             icon_name: 'folder-open-symbolic',
             valign: Gtk.Align.CENTER,
@@ -362,14 +346,14 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         row.add_suffix(pick);
 
         const choose = () => this._chooseFolder(state.window, settings, section, spec, () => {
-            row.set_subtitle(this._folderText(settings, spec));
+            this._showFolder(row, settings, spec);
             reset.visible = true;
         });
         pick.connect('clicked', choose);
         row.connect('activated', choose);
         reset.connect('clicked', () => {
             settings.set_string(spec.key, '');
-            row.set_subtitle(this._folderText(settings, spec));
+            this._showFolder(row, settings, spec);
             reset.visible = false;
         });
         return row;
@@ -386,7 +370,6 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         return [{
             key: `${section.prefix}-path`,
             title: 'Folder',
-            flag: section.flag,
             xdg: section.xdg,
         }];
     }
@@ -410,8 +393,32 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         if (!path)
             return spec.hint ?? 'Not set — choose a folder';
         const isDefault = settings.get_string(spec.key) === '';
-        const missing = !GLib.file_test(path, GLib.FileTest.IS_DIR);
-        return `${path}${isDefault ? '  (default)' : ''}${missing ? '  — not found' : ''}`;
+        return `${path}${isDefault ? '  (default)' : ''}`;
+    }
+
+    // Put a folder on its row, then find out whether it is there. The answer
+    // is never waited for: a folder on a network share or an automount that
+    // has idled out takes as long to stat as the share takes to come back,
+    // and asked synchronously that is how long the window takes to open.
+    _showFolder(row, settings, spec) {
+        const text = this._folderText(settings, spec);
+        row.set_subtitle(text);
+        const path = this._folderFor(settings, spec);
+        if (!path)
+            return;
+        Gio.File.new_for_path(path).query_info_async(
+            'standard::type', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null,
+            (file, result) => {
+                let found = false;
+                try {
+                    found = file.query_info_finish(result).get_file_type() === Gio.FileType.DIRECTORY;
+                } catch (e) {
+                    // Missing or unreachable: the row says the same either way.
+                }
+                // The row may have been pointed somewhere else by now.
+                if (!found && this._folderFor(settings, spec) === path)
+                    row.set_subtitle(`${text}  — not found`);
+            });
     }
 
     _chooseFolder(window, settings, section, spec, onDone) {
@@ -435,24 +442,13 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         });
     }
 
-    _libraryFile() {
-        return GLib.build_filenamev([GLib.get_user_cache_dir(), 'gnomeflix', 'library.json']);
-    }
-
+    // How many items the last scan found per section, read the same way the
+    // desktop reads it.
     _readCounts() {
-        const counts = {generated: null};
-        try {
-            const [ok, bytes] = GLib.file_get_contents(this._libraryFile());
-            if (!ok)
-                return counts;
-            const data = JSON.parse(new TextDecoder().decode(bytes));
-            const sections = Array.isArray(data) ? {tv: data} : (data.sections ?? {});
-            for (const s of SECTIONS)
-                counts[s.key] = Array.isArray(sections[s.key]) ? sections[s.key].length : null;
-            counts.generated = data.generated ?? null;
-        } catch (e) {
-            // No library yet.
-        }
+        const {sections, generated} = readSections();
+        const counts = {generated};
+        for (const s of SECTIONS)
+            counts[s.key] = Array.isArray(sections[s.key]) ? sections[s.key].length : null;
         return counts;
     }
 
@@ -473,6 +469,10 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
 
     // A button that runs backend/scan_library.py for `sections`, then
     // re-reads the counts. The desktop picks the new library up on its own.
+    //
+    // The scanner reads the folders, providers and online switch out of
+    // GSettings itself, so nothing here has to turn a setting into a flag —
+    // `--only` just narrows it to the section whose page this button is on.
     _scanButton(state, sections, onDone) {
         const content = new Adw.ButtonContent({label: 'Rescan', icon_name: 'view-refresh-symbolic'});
         const button = new Gtk.Button({child: content, valign: Gtk.Align.CENTER, css_classes: ['flat']});
@@ -483,26 +483,21 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
                 content.set_label('Nothing enabled');
                 return;
             }
-            const argv = ['python3', GLib.build_filenamev([this.path, 'backend', 'scan_library.py'])];
-            for (const s of enabled) {
-                // Games run on their own flag; their two paths are optional
-                // overrides of the auto-detection, so an unset one is skipped.
-                if (s.scanFlag)
-                    argv.push(s.scanFlag);
-                for (const spec of this._pathSpecs(s)) {
-                    const folder = this._folderFor(state.settings, spec);
-                    if (folder)
-                        argv.push(spec.flag, folder);
-                }
-            }
-            if (argv.length === 2) {
+            // Games are auto-detected and so always have somewhere to look;
+            // every other section needs a folder before it is worth running.
+            const ready = enabled.filter(s =>
+                s.paths || this._folderFor(state.settings, this._pathSpecs(s)[0]));
+            if (!ready.length) {
                 content.set_label('No folder set');
                 return;
             }
-            if (!state.settings.get_boolean('online-metadata'))
-                argv.push('--offline');
-            argv.push('--tv-provider', state.settings.get_string('tv-shows-provider'));
-            argv.push('--films-provider', state.settings.get_string('films-provider'));
+            const argv = [
+                'python3',
+                GLib.build_filenamev([this.path, 'backend', 'scan_library.py']),
+                '--from-settings',
+            ];
+            for (const s of ready)
+                argv.push('--only', s.key);
 
             button.set_sensitive(false);
             content.set_label('Scanning…');

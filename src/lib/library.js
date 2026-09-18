@@ -67,49 +67,109 @@ export function sectionByKey(key) {
     return SECTIONS.find(s => s.key === key) ?? SECTIONS[0];
 }
 
+export function cacheDir() {
+    return GLib.build_filenamev([GLib.get_user_cache_dir(), 'gnomeflix']);
+}
+
 export function libraryPath() {
-    return GLib.build_filenamev([GLib.get_user_cache_dir(), 'gnomeflix', 'library.json']);
+    return GLib.build_filenamev([cacheDir(), 'library.json']);
+}
+
+// "141 in your library". The header and its static twin in the overview both
+// say this, so they say it from one place.
+export function libraryCountLabel(count) {
+    return count ? `${count} in your library` : 'Nothing indexed yet';
+}
+
+// The file as the scanner wrote it: the raw per-section arrays and when it ran.
+export function readSections() {
+    const nothing = {sections: {}, generated: null};
+    const path = libraryPath();
+    if (!GLib.file_test(path, GLib.FileTest.EXISTS))
+        return nothing;
+    try {
+        const [ok, bytes] = GLib.file_get_contents(path);
+        if (!ok)
+            return nothing;
+        const raw = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        return {sections: raw?.sections ?? {}, generated: raw?.generated ?? null};
+    } catch (e) {
+        console.error(`[Gnomeflix] Failed to read ${path}: ${e}`);
+        return nothing;
+    }
 }
 
 // Returns {tv: [...], films: [...], music: [...], photos: [...]} of normalised
 // items. Missing or unreadable files yield empty sections, never fake data.
 export function loadLibrary() {
     const empty = Object.fromEntries(SECTIONS.map(s => [s.key, []]));
-    const path = libraryPath();
-    if (!GLib.file_test(path, GLib.FileTest.EXISTS))
-        return empty;
-
-    let raw;
-    try {
-        const [ok, bytes] = GLib.file_get_contents(path);
-        if (!ok)
-            return empty;
-        raw = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-    } catch (e) {
-        console.error(`[Gnomeflix] Failed to read ${path}: ${e}`);
-        return empty;
-    }
-
-    // Version 1 wrote a bare list of TV shows.
-    const sections = Array.isArray(raw) ? {tv: raw} : (raw?.sections ?? {});
+    const {sections} = readSections();
+    const art = artworkIndex();
     const out = {...empty};
     for (const section of SECTIONS) {
         const items = sections[section.key];
         if (Array.isArray(items))
-            out[section.key] = items.map(item => normalize(item, section.key)).filter(Boolean);
+            out[section.key] = items.map(item => normalize(item, section.key, art)).filter(Boolean);
     }
     return out;
 }
 
-function exists(path) {
-    return !!path && GLib.file_test(path, GLib.FileTest.EXISTS);
+// ---------------------------------------------------------------------------
+// Is the artwork still there?
+//
+// A path in library.json can outlive the file it names — a cleared cache — and
+// St paints a missing background image as nothing at all, so the drawn
+// placeholder would never get its turn. Checking costs a blocking stat per
+// item, though, and this runs on the compositor's main loop for every item in
+// every section, twice.
+//
+// Every one of those paths is the scanner's own, in three cache folders: it
+// copies a cover.jpg it finds beside the media in with the rest, scaled to
+// what the desktop draws. So the folders are listed once and the check is a
+// lookup. A path from anywhere else counts as missing rather than earning a
+// stat of its own — the media can be on a share that has gone to sleep, and
+// one stat of that is the desktop standing still until it wakes.
+// ---------------------------------------------------------------------------
+const ART_DIRS = ['posters', 'backdrops', 'thumbs'];
+
+function listNames(path) {
+    const names = new Set();
+    let children;
+    try {
+        children = Gio.File.new_for_path(path).enumerate_children(
+            'standard::name', Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, null);
+    } catch (e) {
+        return names;   // the folder is not there yet: nothing is cached
+    }
+    let info;
+    while ((info = children.next_file(null)) !== null)
+        names.add(info.get_name());
+    children.close(null);
+    return names;
+}
+
+function artworkIndex() {
+    const root = cacheDir();
+    const index = new Map();
+    for (const name of ART_DIRS) {
+        const dir = GLib.build_filenamev([root, name]);
+        index.set(dir, listNames(dir));
+    }
+    return index;
+}
+
+function exists(path, art) {
+    if (!path)
+        return false;
+    const cut = path.lastIndexOf('/');
+    return art.get(path.slice(0, cut))?.has(path.slice(cut + 1)) ?? false;
 }
 
 function plural(n, word) {
     return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-function normalize(item, sectionKey) {
+function normalize(item, sectionKey, art) {
     if (!item || !item.title)
         return null;
     const base = {
@@ -120,8 +180,8 @@ function normalize(item, sectionKey) {
         rating: item.rating ?? null,
         tags: Array.isArray(item.genres) ? item.genres.slice(0, 3) : [],
         summary: item.summary ?? null,
-        art: exists(item.poster_path) ? item.poster_path : null,
-        backdrop: exists(item.backdrop_path) ? item.backdrop_path : null,
+        art: exists(item.poster_path, art) ? item.poster_path : null,
+        backdrop: exists(item.backdrop_path, art) ? item.backdrop_path : null,
         tagline: item.tagline ?? null,
         folder: item.folder_path ?? null,
         layout: 'list',
@@ -130,7 +190,7 @@ function normalize(item, sectionKey) {
     case 'tv': return normalizeShow(item, base);
     case 'films': return normalizeFilm(item, base);
     case 'music': return normalizeAlbum(item, base);
-    case 'photos': return normalizePhotoAlbum(item, base);
+    case 'photos': return normalizePhotoAlbum(item, base, art);
     case 'documents': return normalizeDocuments(item, base);
     case 'games': return normalizeGame(item, base);
     default: return null;
@@ -266,14 +326,14 @@ function normalizeAlbum(album, base) {
 // ---------------------------------------------------------------------------
 // Photos
 // ---------------------------------------------------------------------------
-function normalizePhotoAlbum(album, base) {
+function normalizePhotoAlbum(album, base, art) {
     const photos = Array.isArray(album.photos) ? album.photos : [];
     const entries = photos.map((p, i) => ({
         index: i + 1,
         title: p.title || p.filename,
         subtitle: null,
         path: p.path,
-        thumb: exists(p.thumb_path) ? p.thumb_path : (exists(p.path) ? p.path : null),
+        thumb: exists(p.thumb_path, art) ? p.thumb_path : null,
         badges: [],
         size: null,
     }));
@@ -410,18 +470,36 @@ export function openPath(path, playerCommand = '') {
         }
         return;
     }
-    const isDir = GLib.file_test(path, GLib.FileTest.IS_DIR);
-    try {
-        if (playerCommand && !isDir) {
-            const [ok, argv] = GLib.shell_parse_argv(playerCommand);
-            if (ok && argv.length) {
-                Gio.Subprocess.new([...argv, path], Gio.SubprocessFlags.NONE);
-                return;
+    // This runs in the compositor, and media often lives on a network share or
+    // an automount that has idled out: asked synchronously, the whole desktop
+    // would stand still for as long as the share takes to come back.
+    const failed = e => console.error(`[Gnomeflix] Could not open ${path}: ${e.message}`);
+    Gio.File.new_for_path(path).query_info_async(
+        'standard::type', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null,
+        (file, result) => {
+            let isDir = false;
+            try {
+                isDir = file.query_info_finish(result).get_file_type() === Gio.FileType.DIRECTORY;
+            } catch (e) {
+                // Not there: let the launch below say so.
             }
-        }
-        const uri = GLib.filename_to_uri(path, null);
-        Gio.AppInfo.launch_default_for_uri(uri, null);
-    } catch (e) {
-        console.error(`[Gnomeflix] Could not open ${path}: ${e.message}`);
-    }
+            try {
+                if (playerCommand && !isDir) {
+                    const [ok, argv] = GLib.shell_parse_argv(playerCommand);
+                    if (ok && argv.length) {
+                        Gio.Subprocess.new([...argv, path], Gio.SubprocessFlags.NONE);
+                        return;
+                    }
+                }
+                Gio.AppInfo.launch_default_for_uri_async(file.get_uri(), null, null, (_source, res) => {
+                    try {
+                        Gio.AppInfo.launch_default_for_uri_finish(res);
+                    } catch (e) {
+                        failed(e);
+                    }
+                });
+            } catch (e) {
+                failed(e);
+            }
+        });
 }

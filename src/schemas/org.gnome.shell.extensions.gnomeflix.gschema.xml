@@ -114,19 +114,10 @@
         </key>
 
         <!-- Desktop placement -->
-        <key name="layout-mode" type="s">
-            <choices>
-                <choice value="single"/>
-                <choice value="workspaces"/>
-            </choices>
-            <default>"workspaces"</default>
-            <summary>How sections map to workspaces</summary>
-            <description>"single": every section on one workspace, switched in the header. "workspaces": one workspace per enabled section, starting at workspace-index, so swiping between workspaces browses the library.</description>
-        </key>
         <key name="workspace-index" type="i">
             <default>0</default>
             <summary>Workspace index</summary>
-            <description>0-indexed workspace to display media on (the first one, in "workspaces" mode).</description>
+            <description>0-indexed workspace to display media on (the first one in "workspaces" mode, the home menu's in "home" mode).</description>
         </key>
         <key name="columns" type="i">
             <default>6</default>
@@ -145,12 +136,6 @@
             <default>""</default>
             <summary>Video player command</summary>
             <description>Command to open videos with. Empty uses the system default application.</description>
-        </key>
-
-        <!-- Remembered UI state -->
-        <key name="last-section" type="s">
-            <default>"tv"</default>
-            <summary>Last opened section</summary>
         </key>
     </schema>
 </schemalist>

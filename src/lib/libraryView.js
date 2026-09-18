@@ -1,11 +1,13 @@
-// The library grid: one section (TV, Films, Music, Photos) at a time, laid out
-// in rows of tiles sized from the screen and the "columns" preference.
+// A section's library grid, laid out in rows of tiles sized from the screen
+// and the "columns" preference. One is built per section the first time it is
+// wanted and kept from then on, so going back to a section is showing an
+// actor rather than building two hundred of them.
 
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 
-import {staggerIn, slideSwap} from './anim.js';
-import {SECTIONS, sectionByKey} from './library.js';
+import {staggerIn} from './anim.js';
+import {fillOnScroll} from './lazyList.js';
 import {createTile, createEmptyState} from './widgets.js';
 
 const GUTTER = 20;             // horizontal gap between tiles
@@ -19,74 +21,44 @@ const MIN_VISIBLE_ROWS = 2.4;
 // Breathing room around the grid so a hovered tile (scaled 5% and lifted)
 // is never clipped by the scroll view's edges.
 const INSET = 16;
+// Rows added per batch once the first screenful is up. A section can hold
+// thousands of items and the screen shows two and a bit rows of them.
+const ROWS_PER_BATCH = 2;
+// Matches the `columns` schema default; used only when there are no settings
+// to read, so the grid still has a sensible width to lay out to.
+export const DEFAULT_COLUMNS = 6;
 
 export class LibraryView {
-    constructor({columnsPreference, onActivate, onOpenSettings}) {
-        this._columnsPreference = columnsPreference;
+    constructor({section, items, width, height, columns, onActivate, onOpenSettings}) {
+        this._columns = columns;
         this._onActivate = onActivate;
         this._onOpenSettings = onOpenSettings;
-        this._sectionKey = null;
-        this._items = [];
-        this._grid = null;
         this._tiles = new Map();
-        this._width = 0;
-        this._height = 0;
+        this._width = width;
+        this._height = height;
 
         // A fixed layout (no layout manager) so the grid can be placed
         // deliberately: the scroll view is oversized by INSET on every side and
         // shifted up-left by the same amount, so hovered tiles at the edges
         // can grow past the container without being cut off by its clip.
         this.actor = new Clutter.Actor({x_expand: true, y_expand: true});
+        this.actor.add_child(items.length
+            ? this._buildGrid(section, items)
+            : this._buildEmpty(section));
     }
 
     destroy() {
         this.actor.destroy();
-        this._grid = null;
         this._tiles.clear();
-    }
-
-    get sectionKey() {
-        return this._sectionKey;
     }
 
     tileFor(itemId) {
         return this._tiles.get(itemId) ?? null;
     }
 
-    setSize(width, height) {
-        this._width = width;
-        this._height = height;
-    }
-
-    // Replace the grid with `items` from `sectionKey`. With animate, the old
-    // grid slides out towards the previous section and the new one slides in.
-    // `reveal` staggers the tiles in; `revealAfter` delays that, e.g. until the
-    // shell's own workspace slide has uncovered the surface.
-    showSection(sectionKey, items, {animate = false, reveal = false, revealAfter = 0} = {}) {
-        const previousKey = this._sectionKey;
-        const old = this._grid;
-        this._sectionKey = sectionKey;
-        this._items = items;
-        this._tiles.clear();
-
-        const section = sectionByKey(sectionKey);
-        const grid = items.length
-            ? this._buildGrid(section, items)
-            : this._buildEmpty(section);
-        this._grid = grid;
-        this.actor.add_child(grid);
-
-        if (!animate) {
-            old?.destroy();
-            if (reveal)
-                staggerIn([...this._tiles.values()], {start: revealAfter});
-            return;
-        }
-
-        const from = SECTIONS.findIndex(s => s.key === previousKey);
-        const to = SECTIONS.findIndex(s => s.key === sectionKey);
-        const direction = to >= from ? 1 : -1;
-        slideSwap(old, grid, direction, {onComplete: () => old?.destroy()});
+    // Stagger in the tiles built so far, which is the screenful on show.
+    reveal() {
+        staggerIn([...this._tiles.values()]);
     }
 
     // Rows always span the full width with a fixed gutter, so every column
@@ -94,8 +66,8 @@ export class LibraryView {
     // the smallest that satisfies three limits: at least the preferred
     // number, enough that a tile is no taller than lets ~2.4 rows show, and
     // enough that a tile never exceeds MAX_TILE on a very wide screen.
-    metrics(aspect) {
-        const preferred = Math.max(1, this._columnsPreference() || 6);
+    _metrics(aspect) {
+        const preferred = Math.max(1, Math.round(this._columns) || 1);
         const availableW = Math.max(200, this._width - 2 * INSET);
         const availableH = Math.max(200, this._height - INSET);
 
@@ -138,7 +110,7 @@ export class LibraryView {
         });
         scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
 
-        const {columns, tileW, tileH} = this.metrics(section.aspect);
+        const {columns, tileW, tileH} = this._metrics(section.aspect);
         // The scroll child is an StViewport, which clips to its own content
         // box, inside any padding it carries. So the viewport stays unpadded
         // and the inset lives on a child box within it, where it sits inside
@@ -151,25 +123,38 @@ export class LibraryView {
             style: `padding: ${INSET}px;`,
         });
         viewport.add_child(rows);
+        scroll.set_child(viewport);
 
-        let row = null;
-        items.forEach((item, i) => {
-            if (i % columns === 0) {
-                row = new St.BoxLayout({style: `spacing: ${GUTTER}px; margin-bottom: ${ROW_GAP}px;`});
+        // The first batch covers the visible grid with a row to spare, so
+        // nothing is missing on the frame the section appears; the rest follow
+        // as it is scrolled. A tile is an St.Button with artwork and two
+        // labels, and there can be thousands of them.
+        let batch = Math.max(1, Math.ceil(this._height / (tileH + TILE_CHROME)) + 1);
+        let next = 0;
+        const buildRows = () => {
+            const limit = Math.min(items.length, next + batch * columns);
+            while (next < limit) {
+                const row = new St.BoxLayout({style: `spacing: ${GUTTER}px; margin-bottom: ${ROW_GAP}px;`});
+                const end = Math.min(limit, next + columns);
+                for (; next < end; next++) {
+                    const item = items[next];
+                    const tile = createTile({
+                        item,
+                        icon: section.icon,
+                        width: tileW,
+                        height: tileH,
+                        onActivate: this._onActivate,
+                    });
+                    this._tiles.set(item.id, tile);
+                    row.add_child(tile);
+                }
                 rows.add_child(row);
             }
-            const tile = createTile({
-                item,
-                icon: section.icon,
-                width: tileW,
-                height: tileH,
-                onActivate: this._onActivate,
-            });
-            this._tiles.set(item.id, tile);
-            row.add_child(tile);
-        });
+            batch = ROWS_PER_BATCH;
+            return next < items.length;
+        };
+        fillOnScroll(scroll, buildRows);
 
-        scroll.set_child(viewport);
         return scroll;
     }
 }

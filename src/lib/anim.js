@@ -18,61 +18,17 @@ export const Duration = {
 
 export const Ease = {
     OUT: Clutter.AnimationMode.EASE_OUT_QUAD,
-    OUT_CUBIC: Clutter.AnimationMode.EASE_OUT_CUBIC,
     OUT_EXPO: Clutter.AnimationMode.EASE_OUT_EXPO,
-    IN: Clutter.AnimationMode.EASE_IN_QUAD,
-    IN_OUT: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
 };
 
-// The scale the shell shrinks a window to while it fades in or out.
+// The scale the shell shrinks a window to while it fades in or out; the grid
+// recedes to it behind the detail pane.
 export const POP_SCALE = 0.94;
-
-// Fade and scale an actor in around its centre, like a window opening.
-export function popIn(actor, {delay = 0, duration = Duration.NORMAL, fromScale = POP_SCALE, fromY = 0, onComplete} = {}) {
-    actor.remove_all_transitions();
-    actor.set_pivot_point(0.5, 0.5);
-    actor.set_scale(fromScale, fromScale);
-    actor.translation_y = fromY;
-    actor.opacity = 0;
-    actor.show();
-    actor.ease({
-        opacity: 255,
-        scale_x: 1,
-        scale_y: 1,
-        translation_y: 0,
-        delay,
-        duration,
-        mode: Ease.OUT_EXPO,
-        onComplete,
-    });
-}
-
-// Fade and shrink an actor out, then hide it and restore its transform so it
-// is ready to be shown again untouched.
-export function popOut(actor, {duration = Duration.FAST, toScale = POP_SCALE, toY = 0, onComplete} = {}) {
-    actor.remove_all_transitions();
-    actor.set_pivot_point(0.5, 0.5);
-    actor.ease({
-        opacity: 0,
-        scale_x: toScale,
-        scale_y: toScale,
-        translation_y: toY,
-        duration,
-        mode: Ease.OUT,
-        onComplete: () => {
-            actor.hide();
-            actor.set_scale(1, 1);
-            actor.translation_y = 0;
-            actor.opacity = 255;
-            onComplete?.();
-        },
-    });
-}
 
 // Reveal a list of actors one after another, the way the app grid settles.
 // The stagger is capped so a long list never feels slow; later items simply
 // arrive together.
-export function staggerIn(actors, {step = 12, cap = 150, fromY = 10, duration = Duration.NORMAL, start = 0} = {}) {
+export function staggerIn(actors, {step = 12, cap = 150, fromY = 10, duration = Duration.NORMAL} = {}) {
     actors.forEach((actor, i) => {
         actor.remove_all_transitions();
         actor.opacity = 0;
@@ -80,7 +36,7 @@ export function staggerIn(actors, {step = 12, cap = 150, fromY = 10, duration = 
         actor.ease({
             opacity: 255,
             translation_y: 0,
-            delay: start + Math.min(i * step, cap),
+            delay: Math.min(i * step, cap),
             duration,
             mode: Ease.OUT,
         });
@@ -117,14 +73,13 @@ export function slideSwap(outgoing, incoming, direction, {distance = 32, onCompl
     });
 }
 
-export function fadeTo(actor, opacity, {duration = Duration.NORMAL, delay = 0, onComplete} = {}) {
+export function fadeTo(actor, opacity, {duration = Duration.NORMAL, onComplete} = {}) {
     actor.remove_all_transitions();
     if (opacity > 0)
         actor.show();
     actor.ease({
         opacity,
         duration,
-        delay,
         mode: Ease.OUT,
         onComplete: () => {
             if (opacity === 0)
@@ -138,6 +93,13 @@ export function fadeTo(actor, opacity, {duration = Duration.NORMAL, delay = 0, o
 // `layer`), then destroy it. The clone paints the source regardless of the
 // source's own opacity or transform, so the real actors can be hidden while
 // the copy is in flight. Resolves when the flight lands.
+//
+// It takes the starting rectangle as its size and flies by transform alone:
+// easing width and height would re-request and re-allocate it every frame of
+// the flight for the same picture. A clone already paints its source scaled
+// into its own box, so scale looks identical, corner radius stretched and all,
+// and both interpolate linearly so the frames between match too. The pivot
+// stays at the top-left, the corner the rectangles are anchored by.
 export function flyClone(layer, source, from, to, {duration = Duration.SLOW} = {}) {
     return new Promise(resolve => {
         const clone = new Clutter.Clone({
@@ -147,12 +109,13 @@ export function flyClone(layer, source, from, to, {duration = Duration.SLOW} = {
             width: from.width,
             height: from.height,
         });
+        clone.set_pivot_point(0, 0);
         layer.add_child(clone);
         clone.ease({
-            x: to.x,
-            y: to.y,
-            width: to.width,
-            height: to.height,
+            translation_x: to.x - from.x,
+            translation_y: to.y - from.y,
+            scale_x: to.width / Math.max(1, from.width),
+            scale_y: to.height / Math.max(1, from.height),
             duration,
             mode: Ease.OUT_EXPO,
             onComplete: () => {

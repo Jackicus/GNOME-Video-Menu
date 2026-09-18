@@ -64,79 +64,128 @@
     background-color: rgba(250, 250, 251, 0.28);
 }
 
-/* ---- Segmented section switcher --------------------------------------- */
+/* ---- Home menu --------------------------------------------------------- */
 
-.gf-segmented {
-    background-color: rgba(34, 34, 38, 0.7);
-    border: 1px solid rgba(250, 250, 251, 0.08);
-    border-radius: 9999px;
-    padding: 4px;
-    spacing: 2px;
+.gf-home-title {
+    font-size: 34px;
+    font-weight: 800;
+    color: #fafafb;
+    text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.6);
 }
 
-.gf-segment {
-    border-radius: 9999px;
-    padding: 6px 16px;
-    color: rgba(250, 250, 251, 0.75);
-    font-size: 13px;
-    font-weight: bold;
+.gf-home-subtitle {
+    margin-top: 4px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: rgba(250, 250, 251, 0.7);
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.gf-launcher {
+    padding: 0px;
+}
+
+.gf-launcher-card {
+    border-radius: 32px;
+    background-color: #222226;
+    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.gf-launcher:focus .gf-launcher-card {
+    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35), 0px 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+/* Over the section's artwork: accent at the top, settling into the shell's
+ * neutral, translucent enough that the artwork still gives each card its own
+ * character. */
+.gf-launcher-veil {
+    border-radius: 32px;
+    border: 1px solid rgba(250, 250, 251, 0.12);
+    background-gradient-direction: vertical;
+    background-gradient-start: st-transparentize(st-mix(-st-accent-color, #222226, 25%), 0.4);
+    background-gradient-end: st-transparentize(st-mix(-st-accent-color, #222226, 10%), 0.1);
     transition-duration: 150ms;
 }
 
-.gf-segment-content {
-    spacing: 8px;
+.gf-launcher-veil-plain {
+    background-gradient-start: st-mix(-st-accent-color, #222226, 55%);
+    background-gradient-end: st-mix(-st-accent-color, #222226, 15%);
 }
 
-.gf-segment:hover,
-.gf-segment:focus {
-    background-color: rgba(250, 250, 251, 0.1);
-    color: #fafafb;
+.gf-launcher:hover .gf-launcher-veil {
+    background-gradient-start: st-transparentize(st-mix(-st-accent-color, #222226, 25%), 0.6);
+    background-gradient-end: st-transparentize(st-mix(-st-accent-color, #222226, 10%), 0.3);
 }
 
-.gf-segment:checked {
-    background-color: -st-accent-color;
+.gf-launcher-icon {
     color: -st-accent-fg-color;
+    icon-shadow: 0px 2px 8px rgba(0, 0, 0, 0.45);
 }
 
-.gf-segment:checked:hover {
-    background-color: st-lighten(-st-accent-color, 5%);
+.gf-launcher-title {
+    margin-top: 14px;
+    font-size: 15px;
+    font-weight: bold;
+    color: #fafafb;
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.gf-launcher:hover .gf-launcher-title {
+    color: st-lighten(-st-accent-color, 25%);
+}
+
+.gf-launcher-subtitle {
+    margin-top: 1px;
+    font-size: 12px;
+    color: rgba(250, 250, 251, 0.6);
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.gf-launcher-dot {
+    margin-top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background-color: st-lighten(-st-accent-color, 25%);
 }
 
 /* ---- Library grid ------------------------------------------------------ */
 
 
 .gf-tile {
-    border-radius: 20px;
     padding: 0px;
 }
 
 .gf-tile:focus .gf-art {
-    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35), 0px 6px 16px rgba(0, 0, 0, 0.45);
+    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35);
 }
 
+/* No box-shadow on artwork, here or on the hero: St shadows an image-backed
+ * widget as a square box, ignoring its radius, which reads as a dark container
+ * behind the poster (and merges into one band along a row of them). */
 .gf-art {
     border-radius: 18px;
     background-color: rgba(34, 34, 38, 0.8);
-    box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.45);
 }
 
+/* The tile labels sit below the artwork, on the wallpaper itself, so they need
+ * a shadow to stay legible over a pale one — but there are eighty of them and a
+ * blurred shadow is a label drawn offscreen and blurred. A hard 1px drop keeps
+ * the contrast for a fraction of that. Nor do they light on hover any more: a
+ * descendant :hover rule restyles the whole tile subtree on every crossing. */
 .gf-tile-title {
     margin-top: 10px;
     font-size: 13px;
     font-weight: bold;
     color: #fafafb;
-    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
-}
-
-.gf-tile:hover .gf-tile-title {
-    color: st-lighten(-st-accent-color, 25%);
+    text-shadow: 0px 1px 0px rgba(0, 0, 0, 0.8);
 }
 
 .gf-tile-subtitle {
     margin-top: 1px;
     font-size: 11px;
     color: rgba(250, 250, 251, 0.6);
-    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+    text-shadow: 0px 1px 0px rgba(0, 0, 0, 0.8);
 }
 
 /* Placeholder artwork: an accent-tinted gradient with the section icon. */
@@ -200,7 +249,6 @@
 .gf-hero {
     border-radius: 22px;
     margin-bottom: 8px;
-    box-shadow: 0px 10px 28px rgba(0, 0, 0, 0.55);
 }
 
 .gf-detail-main {
@@ -320,7 +368,9 @@
     color: rgba(250, 250, 251, 0.55);
 }
 
-/* Entry rows. */
+/* Entry rows. The hover highlight is one background change on the row and
+ * nothing below it: a descendant rule would restyle, and under a transition
+ * cross-fade through an offscreen buffer, once per child as well. */
 .gf-list-scroll {
     margin-top: 2px;
 }
@@ -354,11 +404,6 @@
     color: rgba(250, 250, 251, 0.7);
     background-color: rgba(250, 250, 251, 0.08);
     text-align: center;
-}
-
-.gf-row:hover .gf-row-index {
-    color: -st-accent-fg-color;
-    background-color: -st-accent-color;
 }
 
 .gf-row-text {
@@ -396,19 +441,14 @@
     color: rgba(250, 250, 251, 0.3);
 }
 
-.gf-row:hover .gf-row-icon {
-    color: st-lighten(-st-accent-color, 25%);
-}
-
 /* Photo thumbnails. */
 .gf-thumb-grid {
     padding: 4px 4px 0px 4px;
 }
 
 .gf-thumb {
-    border-radius: 16px;
+    border-radius: 18px;
     background-color: rgba(34, 34, 38, 0.8);
-    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .gf-thumb:focus {

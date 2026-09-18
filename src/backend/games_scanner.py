@@ -28,6 +28,7 @@ import os
 import re
 
 from media_scanner import IMAGE_EXTENSIONS, file_size_mb, natural_sort_key, path_key, slug
+from metadata import cache_local_art
 
 # --------------------------------------------------------------------------
 # Steam
@@ -195,6 +196,9 @@ def _steam_local_art(root, appid):
     older ones put everything flat with an `<appid>_` prefix. The cache is
     lazy — the client downloads only what it has had to draw — so a missing
     file is normal and metadata.py fetches it from the store CDN instead.
+
+    Both are copied into Gnomeflix's own cache at drawing size: the hero art in
+    particular is 1920 wide, and Steam is free to clear its cache under us.
     """
     cache = os.path.join(root, "appcache", "librarycache")
     found = []
@@ -210,7 +214,7 @@ def _steam_local_art(root, appid):
                 hit = candidate
                 break
         found.append(hit)
-    return found[0], found[1]
+    return cache_local_art(found[0]), cache_local_art(found[1], "backdrop")
 
 
 def scan_steam(root=None):
@@ -466,7 +470,10 @@ def _walk_discs(folder):
 
 
 def _pcsx2_cover(covers_dir, title, serial):
-    """PCSX2 names a cover after the game's title or its serial."""
+    """PCSX2 names a cover after the game's title or its serial.
+
+    Scaled into Gnomeflix's own cache like every other path the shell is given.
+    """
     if not covers_dir or not os.path.isdir(covers_dir):
         return None
     wanted = {t.lower() for t in (title, serial) if t}
@@ -477,7 +484,7 @@ def _pcsx2_cover(covers_dir, title, serial):
     for name in names:
         stem, ext = os.path.splitext(name)
         if ext.lower() in IMAGE_EXTENSIONS and stem.lower() in wanted:
-            return os.path.join(covers_dir, name)
+            return cache_local_art(os.path.join(covers_dir, name))
     return None
 
 

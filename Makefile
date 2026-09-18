@@ -1,4 +1,5 @@
-# Thin front door; all logic lives in scripts/dev.sh
+# Thin front door; all logic lives in scripts/: dev.sh for the extension
+# itself, nested.sh for the throwaway shell the visual checks run in.
 DEV := ./scripts/dev.sh
 NESTED := ./scripts/nested.sh
 
