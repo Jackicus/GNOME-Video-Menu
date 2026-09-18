@@ -222,6 +222,12 @@ class Driver:
             self._notify("NotifyPointerMotionAbsolute", "(sdd)", self._stream, float(x), float(y))
             time.sleep(0.3)
             self._pointer_ready = True
+            # The hot corner is a toggle: after 'overview on' what it springs
+            # shut is the overview that was asked for. Only here -- later on,
+            # an overview that has gone is one the extension closed.
+            if self._overview_wanted() and not self._overview_active():
+                self._set_overview(True)
+                time.sleep(OVERVIEW_SETTLE)
         self.ensure_desktop()
         self._notify("NotifyPointerMotionAbsolute", "(sdd)", self._stream, float(x), float(y))
         # Let the actor under the pointer pick up hover/reactive state.
