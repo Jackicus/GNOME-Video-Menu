@@ -102,10 +102,30 @@ held as `Meta.Workspace` objects, not indices, because indices shift as others
 close. GNOME's dynamic workspaces would collapse those empty workspaces, so
 `app.js` marks them with the same `_keepAliveId` the shell's workspace tracker
 uses during drag-and-drop, and releases them when a section closes and on
-disable. That is the only layout: the extension was cut back to it on purpose,
-and anything beyond it (every section on one workspace behind a header
+disable. That is the only desktop layout: the extension was cut back to it on
+purpose, and anything beyond it (every section on one workspace behind a header
 switcher, a standing workspace per section) is to be argued back in on its own
 merits rather than restored wholesale.
+
+All of that is the **desktop view**. `view-mode` chooses between it and the
+**menu view**, and only one is ever built. In the menu view `mediaMenu.js`
+puts a grid per section into the overview's app-grid slot — a subclass of the
+shell's own app view, so pages, swipe, dots and search come with it — opened
+from buttons made as Show Apps is and put beside it (in the dash, or in Dash
+to Panel's panel). Those buttons are the only way in, and they behave as Show
+Apps does: pressed again, back to the window picker. There is then no home
+menu and no grid on the wallpaper; the surface is only the detail pane of
+what was picked, on one claimed workspace that the next pick re-uses, and its
+Back returns to the workspace the pick was made from with the overview on
+that section. `window` is a value held for a view that is not built; it
+behaves as `desktop`. Both views draw a poster with `createArtwork`
+(`widgets.js`); only what holds it differs.
+
+The menu view folds the overview's row of small workspaces away to give the
+posters its room. How far it is folded is read from the overview's own state
+adjustment, never timed: a fade of our own is out of step with the shell's
+transition, and one started as the overview unmaps stalls until it is next
+shown.
 
 Neither the overview nor the slide between workspaces shows the desktop at all
 — each builds its own wallpaper actor per workspace — so `overviewPreview.js`
@@ -190,7 +210,11 @@ up in that, rather than a blocking `file_test` per poster.
   and its `_backgroundGroup`, `controls._thumbnailsBox._thumbnails`) and the
   slide (`Main.wm._workspaceAnimation`, its `_prepareWorkspaceSwitch` and
   `_switchData.monitors[]._workspaceGroups[]._background`). All are
-  underscore-prefixed shell internals that can change between releases. If
+  underscore-prefixed shell internals that can change between releases. The
+  menu view adds `controls._stateAdjustment`, `_workspacesDisplay`, `_searchController`,
+  the layout's `_getAppDisplayBoxForState` (wrapped, and unwrapped on
+  disable), `appDisplay._box`, and `BaseAppView`, which the shell does not
+  export and is reached as `AppDisplay`'s prototype. If
   rendering breaks after a GNOME upgrade look at the first; if section
   workspaces start collapsing, at the second (`_applyWorkspaceMode` in
   `app.js`); if the overview goes empty again, or the slide goes back to bare

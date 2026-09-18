@@ -113,11 +113,23 @@
             <description>The matching Twitch client secret. Exchanged for a short-lived app access token; stored in plain text in dconf.</description>
         </key>
 
+        <!-- Where the library is shown -->
+        <key name="view-mode" type="s">
+            <choices>
+                <choice value="menu"/>
+                <choice value="desktop"/>
+                <choice value="window"/>
+            </choices>
+            <default>"desktop"</default>
+            <summary>View</summary>
+            <description>Where the library is browsed: "menu" is a grid per section in the overview, beside the applications, opened from buttons next to Show Apps; "desktop" is the home menu and section workspaces drawn on the wallpaper. Only one is built at a time. "window" is reserved and behaves as "desktop" for now. An item's detail pane opens on the desktop in every mode.</description>
+        </key>
+
         <!-- Desktop placement -->
         <key name="workspace-index" type="i">
             <default>0</default>
             <summary>Workspace index</summary>
-            <description>0-indexed workspace to display media on (the first one in "workspaces" mode, the home menu's in "home" mode).</description>
+            <description>0-indexed workspace that carries the home menu in the "desktop" view.</description>
         </key>
         <key name="columns" type="i">
             <default>6</default>

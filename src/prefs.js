@@ -97,10 +97,20 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         const {settings} = state;
         const page = new Adw.PreferencesPage({title: 'General', icon_name: 'preferences-system-symbolic'});
 
-        const desktop = new Adw.PreferencesGroup({
-            title: 'Desktop',
-            description: 'Gnomeflix draws straight onto the wallpaper: a home menu on one workspace, and a workspace for each section you open from it.',
-        });
+        // One way of browsing at a time. Window is a place held for a view
+        // that is not built yet, so it is there to see and not to pick.
+        const view = new Adw.PreferencesGroup({title: 'View'});
+        page.add(view);
+
+        const modes = new Adw.ToggleGroup({valign: Gtk.Align.CENTER});
+        modes.add(new Adw.Toggle({name: 'menu', label: 'Menu'}));
+        modes.add(new Adw.Toggle({name: 'desktop', label: 'Desktop'}));
+        modes.add(new Adw.Toggle({name: 'window', label: 'Window', enabled: false, tooltip: 'Not available yet'}));
+        const viewRow = new Adw.ActionRow({title: 'Browse the library in'});
+        viewRow.add_suffix(modes);
+        view.add(viewRow);
+
+        const desktop = new Adw.PreferencesGroup({title: 'Desktop'});
         page.add(desktop);
 
         const workspace = new Adw.SpinRow({
@@ -132,6 +142,27 @@ export default class GnomeflixPreferences extends ExtensionPreferences {
         });
         radius.connect('changed', () => settings.set_int('corner-radius', Math.round(radius.get_value())));
         desktop.add(radius);
+
+        const VIEWS = {
+            menu: 'A grid for each section in the overview, beside your applications, opened from the buttons next to Show Apps. What you pick opens on the desktop.',
+            desktop: 'Drawn straight onto the wallpaper: a home menu on one workspace, and a workspace for each section you open from it.',
+        };
+        const syncView = () => {
+            const mode = settings.get_string('view-mode') === 'menu' ? 'menu' : 'desktop';
+            if (modes.active_name !== mode)
+                modes.active_name = mode;
+            // Under the heading, not in the row, where it would squeeze the toggles.
+            view.description = VIEWS[mode];
+            // The home menu and the grid on the wallpaper are the desktop's.
+            for (const row of [workspace, columns])
+                row.sensitive = mode === 'desktop';
+        };
+        modes.connect('notify::active-name', () => {
+            if (modes.active_name && modes.active_name !== settings.get_string('view-mode'))
+                settings.set_string('view-mode', modes.active_name);
+        });
+        settings.connect('changed::view-mode', syncView);
+        syncView();
 
         const accent = new Adw.ActionRow({
             title: 'Accent colour',

@@ -6,6 +6,11 @@
 // library grid — each built once and kept, so moving between them is a matter
 // of which one is visible. The detail pane is shared, and moves into whichever
 // page opened it.
+//
+// That is the "desktop" view. In the "menu" view the library is browsed in the
+// overview instead (mediaMenu.js) and only one of the two is ever built: the
+// surface is then no more than the detail pane of whatever was picked there,
+// on a workspace of its own.
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import St from 'gi://St';
@@ -22,6 +27,7 @@ import {DEFAULT_COLUMNS, LibraryView} from './libraryView.js';
 import {HOME, HomeView} from './homeView.js';
 import {DetailView} from './detailView.js';
 import {OverviewPreview} from './overviewPreview.js';
+import {MediaMenu} from './mediaMenu.js';
 
 // Gap between the surface and the work-area edges.
 const OUTER_MARGIN = 28;
@@ -48,6 +54,11 @@ export class GnomeflixApp {
         this._heroFrom = null;
         this._monitor = null;
         this._previews = null;
+        this._menu = null;
+        // Menu view: what was picked in the overview, and the workspace it
+        // was picked from, which is where Back returns to.
+        this._picked = null;
+        this._origin = null;
         this._rebuildTimer = 0;
         this._closeTimer = 0;
         this._prebuildIdle = 0;
@@ -89,6 +100,13 @@ export class GnomeflixApp {
                 ...SECTIONS.map(s => `${s.prefix}-enabled`)];
             for (const key of rebuildKeys)
                 this._settings.connectObject(`changed::${key}`, () => this._scheduleRebuild(), this);
+            // What an open workspace means differs between the views, so none
+            // is carried from one to the other.
+            this._settings.connectObject('changed::view-mode', () => {
+                this._opened.clear();
+                this._picked = this._origin = null;
+                this._scheduleRebuild();
+            }, this);
         }
 
         // The scanner writes library.json atomically; refresh when it lands so
@@ -126,6 +144,7 @@ export class GnomeflixApp {
         this._rebuildTimer = this._closeTimer = 0;
         this._teardown();
         this._opened.clear();
+        this._picked = this._origin = null;
         this._keepOnly(new Set());
         this._sections = {};
     }
@@ -136,13 +155,15 @@ export class GnomeflixApp {
         this._prebuildIdle = 0;
         this._previews?.destroy();
         this._previews = null;
+        this._menu?.disable();
+        this._menu = null;
         // The background group is the shell's, and was not reactive before.
         const group = this._container?.get_parent();
         if (group && group === Main.layoutManager._backgroundGroup)
             group.reactive = false;
         this._home?.destroy();
         for (const page of this._pages.values())
-            page.library.destroy();
+            page.library?.destroy();
         this._pages.clear();
         this._detail?.destroy();
         this._container?.destroy();
@@ -191,7 +212,17 @@ export class GnomeflixApp {
         return SECTIONS.filter(s => !this._settings || this._settings.get_boolean(`${s.prefix}-enabled`));
     }
 
+    // Where the library is browsed. "window" is not built yet, and is the
+    // desktop until it is.
+    _menuMode() {
+        return this._settings?.get_string('view-mode') === 'menu';
+    }
+
+    // The home menu's workspace; the menu view has no home menu, and -1 is
+    // no workspace's index.
     _targetWorkspace() {
+        if (this._menuMode())
+            return -1;
         return this._settings?.get_int('workspace-index') ?? 0;
     }
 
@@ -242,6 +273,8 @@ export class GnomeflixApp {
             if (workspace.index() < 0 || !enabled.some(s => s.key === key))
                 this._opened.delete(key);
         }
+        if (this._picked && !this._opened.has(this._picked.key))
+            this._picked = null;
 
         // Everything up to and including Home stays put, so its index cannot
         // shift underneath us.
@@ -317,14 +350,19 @@ export class GnomeflixApp {
         workspace.activate(global.get_current_time());
     }
 
-    // A section -> the home menu, closing the section's workspace behind it
-    // once the shell's slide has left it.
+    // A section -> where it was opened from, closing the section's workspace
+    // behind it once the shell's slide has left it. That is the home menu; in
+    // the menu view, the workspace the overview was on when the item was
+    // picked, with the overview back on that section.
     _goHome() {
         if (this._busy)
             return;
         const wm = global.workspace_manager;
-        const home = wm.get_workspace_by_index(this._targetWorkspace());
-        if (!home)
+        const menu = this._menuMode();
+        const to = menu
+            ? (this._origin?.index() >= 0 ? this._origin : wm.get_workspace_by_index(0))
+            : wm.get_workspace_by_index(this._targetWorkspace());
+        if (!to)
             return;
         // Forgotten now, so Home arrives without its dot; let go of only when
         // the slide is over, so the shell is not removing a workspace it is
@@ -332,9 +370,19 @@ export class GnomeflixApp {
         // picture, though.
         const key = this._sectionKey;
         const workspace = this._opened.get(key);
+        // Already on its way out: a second press would replace the timer that
+        // lets the first one's workspace go.
+        if (!workspace)
+            return;
         this._opened.delete(key);
         this._leaving = {key, workspace};
-        home.activate(global.get_current_time());
+        if (menu) {
+            this._picked = null;
+            this._menu?.open(key);
+        }
+        to.activate(global.get_current_time());
+        // Left without a change of workspace, when that is where it was opened.
+        this._syncVisibility(true);
         if (this._closeTimer)
             GLib.source_remove(this._closeTimer);
         this._closeTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, WORKSPACE_SWITCH_TIME + 50, () => {
@@ -364,20 +412,41 @@ export class GnomeflixApp {
         this._syncVisibility(true);
     }
 
+    // The media menu -> an item. There is one workspace for whatever was
+    // picked last, whichever section it came from, since there is one detail
+    // pane; it is in place before the slide that brings it in.
+    _openFromMenu(key, item) {
+        Main.overview.hide();
+        const active = global.workspace_manager.get_active_workspace();
+        if (this._placeForWorkspace(active.index()) === null)
+            this._origin = active;
+        const [[was, workspace] = []] = this._opened;
+        if (workspace && was !== key) {
+            this._opened.delete(was);
+            this._opened.set(key, workspace);
+            this._previews?.invalidate();
+        }
+        this._picked = {key, item};
+        this._showSectionNow(key);
+        this._openSection(key);
+        // Picked from the workspace that is then claimed, nothing changes.
+        this._syncVisibility(true);
+    }
+
     // The current page back to its library, whatever was in flight on it.
     _resetViews() {
         this._overlay.destroy_all_children();
         this._detail.actor.remove_all_transitions();
         this._detail.actor.hide();
         const page = this._pages.get(this._sectionKey);
-        if (page) {
-            const grid = page.library.actor;
+        const grid = page?.library?.actor;
+        if (grid) {
             grid.remove_all_transitions();
             grid.set_scale(1, 1);
             grid.opacity = 255;
             grid.show();
-            page.header.setLibraryMode(false);
         }
+        page?.header.setLibraryMode(false);
         this._busy = false;
     }
 
@@ -389,14 +458,40 @@ export class GnomeflixApp {
         if (!this._container)
             return;
         this._resetViews();
-        this._home.actor.hide();
+        this._home?.actor.hide();
         this._mode = 'library';
         this._sectionKey = key;
         const page = this._page(key);
         for (const other of this._pages.values())
             other.actor.visible = other === page;
-        if (reveal)
+        if (!page.library)
+            this._showPicked(page);
+        else if (reveal)
             page.library.reveal();
+    }
+
+    // A page of the menu view has no grid: it is the detail pane of what was
+    // picked, put there outright. The shell's slide is what brings it in.
+    _showPicked(page) {
+        if (this._picked?.key !== page.key)
+            return;
+        this._mode = 'detail';
+        this._attachDetail(page);
+        this._detail.populate(this._picked.item, sectionByKey(page.key));
+        const actor = this._detail.actor;
+        actor.opacity = 255;
+        actor.translation_y = 0;
+        actor.show();
+        page.header.setDetailMode(false);
+    }
+
+    // The detail pane is shared, and moves into whichever page wants it.
+    _attachDetail(page) {
+        const actor = this._detail.actor;
+        if (actor.get_parent() === page.stack)
+            return;
+        actor.get_parent()?.remove_child(actor);
+        page.stack.add_child(actor);
     }
 
     // The same for the home menu.
@@ -446,20 +541,9 @@ export class GnomeflixApp {
         this._detail.setSize(bounds.width, bounds.height - HEADER_ALLOWANCE);
         this._detail.actor.hide();
 
-        // The home menu has the whole surface to itself, header included.
-        this._home = new HomeView({
-            sections: this._enabledSections(),
-            itemsFor: key => this._sections[key] ?? [],
-            onActivate: key => this._openSection(key),
-            onOpenSettings: () => this._extension.openPreferences(),
-        });
-        this._home.setSize(bounds.width, bounds.height);
-        // A clone lays a hidden source out at the size it asks for, and left
-        // to itself the menu asks for no more than its launchers take up.
-        this._home.actor.set_size(bounds.width, bounds.height);
-        this._home.build(this._opened.keys());
-        this._home.actor.hide();
-        this._container.add_child(this._home.actor);
+        const menu = this._menuMode();
+        if (!menu)
+            this._buildHome(bounds);
 
         // Clones in flight between the two views live above both.
         this._overlay = new Clutter.Actor({x_expand: true, y_expand: true});
@@ -478,7 +562,7 @@ export class GnomeflixApp {
         const place = this._placeForWorkspace(global.workspace_manager.get_active_workspace_index());
         if (place && place !== HOME)
             this._showSectionNow(place, {reveal: true});
-        else
+        else if (!menu)
             this._showHomeNow({reveal: true});
 
         // The overview never shows this surface — it builds its own wallpaper
@@ -490,7 +574,37 @@ export class GnomeflixApp {
         });
         this._previews.enable();
 
-        this._prebuildPages();
+        // One way of browsing at a time: the library as a second application
+        // menu in the overview, or as pages here. A page of the menu view is
+        // a header and nothing else until something is picked, so none is
+        // built ahead.
+        if (menu) {
+            this._menu = new MediaMenu({
+                sections: this._enabledSections(),
+                itemsFor: key => this._sections[key] ?? [],
+                onActivate: (key, item) => this._openFromMenu(key, item),
+            });
+            this._menu.enable();
+        } else {
+            this._prebuildPages();
+        }
+    }
+
+    // The home menu has the whole surface to itself, header included.
+    _buildHome(bounds) {
+        this._home = new HomeView({
+            sections: this._enabledSections(),
+            itemsFor: key => this._sections[key] ?? [],
+            onActivate: key => this._openSection(key),
+            onOpenSettings: () => this._extension.openPreferences(),
+        });
+        this._home.setSize(bounds.width, bounds.height);
+        // A clone lays a hidden source out at the size it asks for, and left
+        // to itself the menu asks for no more than its launchers take up.
+        this._home.actor.set_size(bounds.width, bounds.height);
+        this._home.build(this._opened.keys());
+        this._home.actor.hide();
+        this._container.add_child(this._home.actor);
     }
 
     // The page for a section, built the first time it is asked for.
@@ -531,16 +645,20 @@ export class GnomeflixApp {
         const stack = new St.Widget({layout_manager: new Clutter.BinLayout(), x_expand: true, y_expand: true});
         actor.add_child(stack);
 
-        const library = new LibraryView({
-            section: sectionByKey(key),
-            items: this._sections[key] ?? [],
-            width,
-            height: height - HEADER_ALLOWANCE,
-            columns: this._columns(),
-            onActivate: (item, tile) => this._openItem(item, tile),
-            onOpenSettings: () => this._extension.openPreferences(),
-        });
-        stack.add_child(library.actor);
+        // The menu view's grid is the one in the overview.
+        let library = null;
+        if (!this._menuMode()) {
+            library = new LibraryView({
+                section: sectionByKey(key),
+                items: this._sections[key] ?? [],
+                width,
+                height: height - HEADER_ALLOWANCE,
+                columns: this._columns(),
+                onActivate: (item, tile) => this._openItem(item, tile),
+                onOpenSettings: () => this._extension.openPreferences(),
+            });
+            stack.add_child(library.actor);
+        }
 
         this._stack.add_child(actor);
         return {key, actor, header, stack, library};
@@ -657,10 +775,7 @@ export class GnomeflixApp {
 
         const section = sectionByKey(this._sectionKey);
         const page = this._page();
-        if (this._detail.actor.get_parent() !== page.stack) {
-            this._detail.actor.get_parent()?.remove_child(this._detail.actor);
-            page.stack.add_child(this._detail.actor);
-        }
+        this._attachDetail(page);
         const art = tile.artwork;
         const from = rectIn(art, this._container);
         this._heroFrom = {item, from};
@@ -710,6 +825,11 @@ export class GnomeflixApp {
     // Detail -> library, mirrored: the hero flies back to its tile while the
     // grid comes forward again.
     async _goBack() {
+        // The menu view's library is in the overview.
+        if (this._menuMode()) {
+            this._goHome();
+            return;
+        }
         if (this._busy || this._mode !== 'detail')
             return;
         this._busy = true;

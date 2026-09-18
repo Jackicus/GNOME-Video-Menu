@@ -116,6 +116,11 @@ reads as "no change". `logs` hides D-Bus activation and portal chatter; `logs 20
   `gsettings --schemadir src/schemas list-recursively org.gnome.shell.extensions.gnomeflix`.
 - **`start` enables Gnomeflix** if dconf doesn't list it — which writes
   `enabled-extensions`, so the real session will load it at the next login too.
+- **The menu view's buttons are in the overview's dash** (there is no Dash to
+  Panel in the nested shell): Show Apps ≈ (727, 850), then a button per
+  section with items, TV Shows ≈ (800, 850), Films ≈ (873, 850). `view-mode`
+  is a dconf setting, so set it before `start` — or with `run gsettings` to
+  watch a live switch.
 - **Never click or hover at the top-left.** It is the Activities hot corner and
   throws the shell into the overview. Pointer motion is absolute (the input session
   is linked to a screencast of the monitor), so a point only lands there if asked
