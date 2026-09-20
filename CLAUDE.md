@@ -72,10 +72,21 @@ as missing.
    detail pane shows. Each section has its own `<prefix>-online` switch as
    well; there is no global one. Each cache entry records the source that wrote
    it, so a title already answered by one of a section's sources is not fetched
-   again, and dropping that source refetches on the next scan. Sections are merged, so rescanning one keeps the others. Music
+   again, and dropping that source refetches on the next scan. Sections are merged, so rescanning one keeps the others. A section's
+   folders are an ordered list too, `<prefix>-folders`, added and removed on
+   the Files group the way sources are; every folder is walked into one list
+   for the section (a name found in two folders gets a `~2` id), and the
+   flags are repeatable to match (`--films-path A --films-path B`).
+   `<prefix>-path` is the single folder earlier releases kept: the prefs move
+   it into the list when they open, and the scanner reads it only while the
+   list is empty. Music
    and Photos default to the XDG user folders; TV Shows and Films have
    no default because the Videos folder cannot serve both, so they are off until
    pointed at a folder (prefs, `dev.sh scan` and the scanner all follow this).
+   An item's `scan_sig` includes its folder's path as well as the tree's
+   mtimes: what a match reuses is the file list, every entry of it an absolute
+   path, so a drive renamed under an untouched tree must read as changed or
+   every file in it is opened where it used to be.
    Games are the exception — see `src/backend/CLAUDE.md`.
 
    A list entry is a source name with a **credential slot** — `tmdb` is

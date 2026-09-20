@@ -2,17 +2,26 @@
 <schemalist gettext-domain="gnome-shell-extensions">
     <schema path="/org/gnome/shell/extensions/media-libraries/" id="org.gnome.shell.extensions.media-libraries">
 
-        <!-- Media sections. An empty path means the XDG user folder (Music,
+        <!-- Media sections. Each looks in an ordered list of folders,
+             <prefix>-folders; an empty list means the XDG user folder (Music,
              Pictures). TV shows and films have no default: the Videos folder
-             cannot be both, so they stay off until pointed at a folder. -->
+             cannot be both, so they stay off until pointed at a folder.
+             <prefix>-path is the single folder earlier releases kept: the
+             preferences move it into the list the first time they open, and
+             the scanner reads it only while the list is still empty. -->
         <key name="tv-shows-enabled" type="b">
             <default>true</default>
             <summary>Show TV shows</summary>
         </key>
         <key name="tv-shows-path" type="s">
             <default>""</default>
-            <summary>TV shows folder</summary>
-            <description>One subfolder per show, optionally split into Season N subfolders.</description>
+            <summary>TV shows folder (legacy)</summary>
+            <description>Superseded by tv-shows-folders; read only while that list is empty. One subfolder per show, optionally split into Season N subfolders.</description>
+        </key>
+        <key name="tv-shows-folders" type="as">
+            <default>[]</default>
+            <summary>TV shows folders</summary>
+            <description>One subfolder per show, optionally split into Season N subfolders. Tried in order; a show that appears in two folders is listed twice.</description>
         </key>
 
         <key name="tv-shows-sources" type="as">
@@ -32,7 +41,12 @@
         </key>
         <key name="films-path" type="s">
             <default>""</default>
-            <summary>Films folder</summary>
+            <summary>Films folder (legacy)</summary>
+            <description>Superseded by films-folders; read only while that list is empty. One subfolder or file per film, named "Title (Year)".</description>
+        </key>
+        <key name="films-folders" type="as">
+            <default>[]</default>
+            <summary>Films folders</summary>
             <description>One subfolder or file per film, named "Title (Year)".</description>
         </key>
 
@@ -53,8 +67,13 @@
         </key>
         <key name="music-path" type="s">
             <default>""</default>
-            <summary>Music folder</summary>
-            <description>Album folders, optionally grouped under artist folders.</description>
+            <summary>Music folder (legacy)</summary>
+            <description>Superseded by music-folders; read only while that list is empty. Album folders, optionally grouped under artist folders.</description>
+        </key>
+        <key name="music-folders" type="as">
+            <default>[]</default>
+            <summary>Music folders</summary>
+            <description>Album folders, optionally grouped under artist folders. Empty means the Music folder.</description>
         </key>
 
         <key name="music-sources" type="as">
@@ -74,8 +93,13 @@
         </key>
         <key name="photos-path" type="s">
             <default>""</default>
-            <summary>Photos folder</summary>
-            <description>One subfolder per album.</description>
+            <summary>Photos folder (legacy)</summary>
+            <description>Superseded by photos-folders; read only while that list is empty. One subfolder per album.</description>
+        </key>
+        <key name="photos-folders" type="as">
+            <default>[]</default>
+            <summary>Photos folders</summary>
+            <description>One subfolder per album. Empty means the Pictures folder.</description>
         </key>
 
         <key name="photos-sources" type="as">

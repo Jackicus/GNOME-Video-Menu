@@ -86,6 +86,10 @@ expects:
   libraries on other drives), and PS2 games come from wherever `PCSX2.ini`
   points.
 
+A library can have as many folders as you like — press **+** on its Files
+group to add another — and they're scanned in order into one list, so films
+kept on two drives sit side by side.
+
 Music and Photos start out pointed at your usual Music and Pictures folders.
 TV Shows and Films have no default — your Videos folder can't be both — so
 they stay switched off until you give them one.

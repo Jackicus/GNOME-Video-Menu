@@ -78,6 +78,11 @@ def folder_signature(folder, recursive=True):
     subfolders) stands in for "something appeared or went away in here". The
     one edit it cannot see is a file rewritten in place under the same name,
     which leaves a stale size behind until `--force` re-reads everything.
+
+    The folder's own path is part of it. What is reused on a match is the file
+    list, and every entry in it is an absolute path — so a tree that moved
+    unchanged (a drive renamed, a share remounted somewhere else) has to read
+    as changed, or every file in it is looked for where it used to be.
     """
     newest = 0.0
     seen = 0
@@ -90,7 +95,7 @@ def folder_signature(folder, recursive=True):
             pass
         if not recursive:
             break
-    return f"{seen}:{newest:.3f}"
+    return f"{seen}:{newest:.3f}:{folder}"
 
 
 def reusable(previous, item_id, signature, field):

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Index the media library and write the library.json Media Libraries reads.
 
-Each section is scanned only when its path is given, and the result is merged
-into the existing library.json so a rescan of one section keeps the others.
-Games are the exception: they are not a folder of media, so `--games` runs that
-section and the two paths only override auto-detection.
+Each section is scanned only when a folder is given for it, and the result is
+merged into the existing library.json so a rescan of one section keeps the
+others. A section can have several folders — repeat its flag — and they are
+walked in order into one list. Games are the exception: they are not a folder
+of media, so `--games` runs that section and the two paths only override
+auto-detection.
 
     python3 scan_library.py --tv-path "~/Videos/TV Shows" --films-path ~/Videos/Films
+    python3 scan_library.py --films-path ~/Videos/Films --films-path /media/HDD/Films
     python3 scan_library.py --music-path ~/Music --offline
     python3 scan_library.py --games
     python3 scan_library.py --films-path ~/Videos/Films --source film=tmdb,wikipedia
@@ -60,7 +63,7 @@ SCHEMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 # library of its own, but shares this machine's one artwork cache.
 LIBRARY_PATH = os.path.join(CACHE_DIR, "library.json")
 
-# section key -> (GSettings key prefix, XDG user folder when the path is unset).
+# section key -> (GSettings key prefix, XDG user folder when no folder is set).
 # TV shows and films have no default: the Videos folder cannot serve both.
 SECTION_SETTINGS = {
     "tv": ("tv-shows", None),
@@ -160,6 +163,25 @@ def xdg_dir(name):
     return os.path.expanduser(f"~/{XDG_FALLBACKS[name]}")
 
 
+def section_folders(prefix, xdg):
+    """The folders a section is pointed at, in order, as the preferences see them.
+
+    <prefix>-folders is the list; <prefix>-path is the single folder earlier
+    releases kept and is read only while the list is empty, exactly as the
+    preferences read it before moving it over. With neither, the XDG folder for
+    the sections that have one.
+    """
+    listed = _setting_value(f"{prefix}-folders")
+    folders = [str(f) for f in listed if str(f)] if isinstance(listed, list) else []
+    if not folders:
+        legacy = _setting(f"{prefix}-path")
+        if legacy:
+            folders = [legacy]
+    if not folders and xdg:
+        folders = [xdg_dir(xdg)]
+    return folders
+
+
 def apply_settings(args, parser):
     """Fill the command line in from the preferences.
 
@@ -181,9 +203,9 @@ def apply_settings(args, parser):
             args.steam_path = args.steam_path or _setting("steam-path") or ""
             args.pcsx2_path = args.pcsx2_path or _setting("pcsx2-path") or ""
             continue
-        path = _setting(f"{prefix}-path") or (xdg_dir(xdg) if xdg else "")
-        if path:
-            setattr(args, f"{key}_path", path)
+        folders = section_folders(prefix, xdg)
+        if folders:
+            setattr(args, f"{key}_path", folders)
         else:
             print(f"{key}: no folder set, skipping")
 
@@ -232,6 +254,26 @@ def enrich_all(meta, items):
         list(pool.map(one, items))
 
 
+def unique_ids(items):
+    """Make every id in `items` distinct, in place.
+
+    A section walked from several folders can hold the same name twice — a
+    show kept on two drives — and the id is the slug of the name. The second
+    one gets a numbered suffix; a reused entry is never confused with it, since
+    the folder is part of the signature the reuse is checked against.
+    """
+    seen = set()
+    for item in items:
+        base = item["id"]
+        candidate, n = base, 1
+        while candidate in seen:
+            n += 1
+            candidate = f"{base}~{n}"
+        item["id"] = candidate
+        seen.add(candidate)
+    return items
+
+
 def unchanged(items, previous):
     """How many items came back straight out of the previous scan."""
     return sum(
@@ -242,10 +284,14 @@ def unchanged(items, previous):
 
 def main():
     parser = argparse.ArgumentParser(description="Scan media folders and cache metadata.")
-    parser.add_argument("--tv-path", help="TV shows folder")
-    parser.add_argument("--films-path", help="Films folder")
-    parser.add_argument("--music-path", help="Music folder")
-    parser.add_argument("--photos-path", help="Photos folder")
+    parser.add_argument("--tv-path", action="append", metavar="FOLDER",
+                        help="A TV shows folder (repeatable)")
+    parser.add_argument("--films-path", action="append", metavar="FOLDER",
+                        help="A films folder (repeatable)")
+    parser.add_argument("--music-path", action="append", metavar="FOLDER",
+                        help="A music folder (repeatable)")
+    parser.add_argument("--photos-path", action="append", metavar="FOLDER",
+                        help="A photos folder (repeatable)")
     parser.add_argument("--games", action="store_true", help="Index installed Steam and PS2 games")
     parser.add_argument("--steam-path", default="", help="Steam library root (empty: auto-detect)")
     parser.add_argument("--pcsx2-path", default="", help="PCSX2 config folder (empty: auto-detect)")
@@ -284,10 +330,10 @@ def main():
         parser.error("--only is only meaningful with --from-settings")
 
     requested = {
-        "tv": args.tv_path,
-        "films": args.films_path,
-        "music": args.music_path,
-        "photos": args.photos_path,
+        "tv": args.tv_path or [],
+        "films": args.films_path or [],
+        "music": args.music_path or [],
+        "photos": args.photos_path or [],
     }
     # Games have no media folder to point at, so the flag alone runs them —
     # and naming either root implies it.
@@ -326,35 +372,42 @@ def main():
                 if isinstance(item, dict) and item.get("id")
             }
 
-        for key, raw in requested.items():
-            if not raw:
+        tv_folders = [os.path.expanduser(p) for p in requested["tv"]]
+        for key, raw_folders in requested.items():
+            if not raw_folders:
                 continue
-            path = os.path.expanduser(raw)
-            if not os.path.isdir(path):
-                print(f"{key}: {path} is not a folder, leaving section empty")
-                sections[key] = []
-                scanned[key] = {"path": path, "count": 0, "error": "missing"}
-                continue
-
             t0 = time.time()
             previous = previous_items(key)
-            if key == "tv":
-                items = scan_tv(path, previous)
-            elif key == "films":
-                items = scan_films(path, exclude=[os.path.expanduser(args.tv_path or "")], previous=previous)
-            elif key == "music":
-                items = scan_music(path, previous)
-            else:
-                items = scan_photos(path, make_thumbnailer(), previous)
+            items = []
+            missing = []
+            for raw in raw_folders:
+                path = os.path.expanduser(raw)
+                if not os.path.isdir(path):
+                    print(f"{key}: {path} is not a folder, skipping it")
+                    missing.append(path)
+                    continue
+                if key == "tv":
+                    found = scan_tv(path, previous)
+                elif key == "films":
+                    found = scan_films(path, exclude=tv_folders, previous=previous)
+                elif key == "music":
+                    found = scan_music(path, previous)
+                else:
+                    found = scan_photos(path, make_thumbnailer(), previous)
+                items.extend(found)
+            unique_ids(items)
 
             if key in ("tv", "films", "music"):
                 enrich_all(meta, items)
 
             sections[key] = items
-            scanned[key] = {"path": path, "count": len(items)}
+            paths = [os.path.expanduser(p) for p in raw_folders]
+            scanned[key] = {"paths": paths, "count": len(items)}
+            if missing:
+                scanned[key]["missing"] = missing
             reused = unchanged(items, previous)
             note = f", {reused} unchanged" if reused else ""
-            print(f"{key}: {len(items)} items from {path} ({time.time() - t0:.1f}s{note})")
+            print(f"{key}: {len(items)} items from {', '.join(paths)} ({time.time() - t0:.1f}s{note})")
 
         if do_games:
             t0 = time.time()

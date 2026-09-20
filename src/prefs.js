@@ -75,9 +75,11 @@ const SOURCES = {
 // ordered list in use is <prefix>-sources, and the same source may appear in
 // it more than once with a different key.
 //
-// A section normally has exactly one folder, <prefix>-path. Games have two —
-// Steam's library root and PCSX2's config folder, both auto-detected — so they
-// name them in `paths`, which _pathSpecs() below flattens the single case into.
+// A section normally looks in a list of folders, <prefix>-folders, added and
+// removed on its Files group as sources are on the sources group. Games are
+// different: not a list of media folders but two roots — Steam's library and
+// PCSX2's config folder, both auto-detected — so they name them in `paths`
+// and get one fixed row each.
 const PAGES = {
     tv: {
         lower: 'TV shows', noun: 'shows', xdg: null,
@@ -139,6 +141,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             settings,
             counts: this._readCounts(),
         };
+        this._migrateFolders(settings);
 
         window.add(this._generalPage(state));
         for (const section of SECTIONS)
@@ -409,8 +412,12 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         settings.bind(`${section.prefix}-enabled`, enabled, 'active', Gio.SettingsBindFlags.DEFAULT);
         files.add(enabled);
 
-        for (const spec of this._pathSpecs(section))
-            files.add(this._folderRow(state, section, spec));
+        if (section.paths) {
+            for (const spec of section.paths)
+                files.add(this._folderRow(state, section, spec));
+        } else {
+            this._foldersGroup(state, section, files);
+        }
 
         page.add(this._sourcesGroup(state, section));
 
@@ -701,7 +708,153 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         return GLib.file_test(path, GLib.FileTest.IS_REGULAR) ? path : null;
     }
 
-    // One "Folder" row: what it is set to, a chooser and a clear button.
+    // ------------------------------------------------------------------
+    // Folders
+    // ------------------------------------------------------------------
+    // The ordered list of folders a section is scanned from, on the Files
+    // group: one row per folder with a remove button, and a "+" in the group's
+    // header that opens the chooser and appends. The rows are rebuilt from
+    // <prefix>-folders whenever it changes, as the sources rows are. With the
+    // list empty the group shows what the scanner will use instead — the XDG
+    // folder for music and photos, nothing for TV shows and films.
+    _foldersGroup(state, section, group) {
+        const {settings} = state;
+        const key = `${section.prefix}-folders`;
+
+        const add = new Gtk.Button({
+            icon_name: 'list-add-symbolic',
+            valign: Gtk.Align.CENTER,
+            tooltip_text: 'Add a folder',
+            css_classes: ['flat'],
+        });
+        add.connect('clicked', () => {
+            const current = settings.get_strv(key);
+            this._pickFolder(state.window, `Add a ${section.title} folder`, current.at(-1) ?? null, path => {
+                if (!current.includes(path))
+                    settings.set_strv(key, [...current, path]);
+            });
+        });
+        group.set_header_suffix(add);
+
+        const rows = [];
+        const rebuild = () => {
+            for (const row of rows.splice(0))
+                group.remove(row);
+            const list = settings.get_strv(key);
+            if (!list.length) {
+                const fallback = this._defaultFolder(section);
+                const row = new Adw.ActionRow({
+                    title: fallback ? 'Folder' : 'No folder',
+                    subtitle: fallback ? `${fallback}  (default)` : 'Nothing is scanned. Add a folder above.',
+                    sensitive: Boolean(fallback),
+                });
+                if (fallback)
+                    this._checkFolder(row, fallback, () => !settings.get_strv(key).length);
+                group.add(row);
+                rows.push(row);
+                return;
+            }
+            list.forEach((path, index) => {
+                const row = new Adw.ActionRow({
+                    title: list.length > 1 ? `Folder ${index + 1}` : 'Folder',
+                    subtitle: path,
+                    activatable: true,
+                });
+                this._checkFolder(row, path, () => settings.get_strv(key)[index] === path);
+                const remove = new Gtk.Button({
+                    icon_name: 'list-remove-symbolic',
+                    valign: Gtk.Align.CENTER,
+                    tooltip_text: 'Remove this folder',
+                    css_classes: ['flat'],
+                });
+                remove.connect('clicked', () => {
+                    settings.set_strv(key, settings.get_strv(key).filter((_, i) => i !== index));
+                });
+                row.add_suffix(remove);
+                // Activating a row points it somewhere else, in place.
+                row.connect('activated', () => {
+                    this._pickFolder(state.window, `Choose ${section.title} folder`, path, chosen => {
+                        const next = settings.get_strv(key);
+                        next[index] = chosen;
+                        settings.set_strv(key, [...new Set(next)]);
+                    });
+                });
+                group.add(row);
+                rows.push(row);
+            });
+        };
+        settings.connect(`changed::${key}`, rebuild);
+        rebuild();
+    }
+
+    // Earlier releases kept one folder per section in <prefix>-path. It is
+    // moved into the list once, here, so a desktop that upgrades keeps its
+    // folders and the scanner never has to read the old key again.
+    _migrateFolders(settings) {
+        for (const section of SECTIONS) {
+            if (section.paths)
+                continue;
+            const legacy = settings.get_string(`${section.prefix}-path`);
+            if (!legacy)
+                continue;
+            if (!settings.get_strv(`${section.prefix}-folders`).length)
+                settings.set_strv(`${section.prefix}-folders`, [legacy]);
+            settings.set_string(`${section.prefix}-path`, '');
+        }
+    }
+
+    // The folders the scanner will walk for a section: the list, or the XDG
+    // default while the list is empty.
+    _foldersFor(settings, section) {
+        const listed = settings.get_strv(`${section.prefix}-folders`);
+        if (listed.length)
+            return listed;
+        const fallback = this._defaultFolder(section);
+        return fallback ? [fallback] : [];
+    }
+
+    // Find out whether `path` is there and mark the row if not. The answer is
+    // never waited for: a folder on a share or an automount that has idled
+    // out takes as long to stat as the share takes to come back, and asked
+    // synchronously that is how long the window takes to open. `stillCurrent`
+    // says whether the row is still about this path when the answer lands.
+    _checkFolder(row, path, stillCurrent) {
+        const text = row.get_subtitle();
+        Gio.File.new_for_path(path).query_info_async(
+            'standard::type', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null,
+            (file, result) => {
+                let found = false;
+                try {
+                    found = file.query_info_finish(result).get_file_type() === Gio.FileType.DIRECTORY;
+                } catch (e) {
+                    // Missing or unreachable: the row says the same either way.
+                }
+                if (!found && stillCurrent())
+                    row.set_subtitle(`${text}  — not found`);
+            });
+    }
+
+    _pickFolder(window, title, initial, onChosen) {
+        const dialog = new Gtk.FileDialog({
+            title,
+            modal: true,
+            initial_folder: Gio.File.new_for_path(
+                initial ??
+                GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_VIDEOS) ?? GLib.get_home_dir()),
+        });
+        dialog.select_folder(window, null, (source, result) => {
+            try {
+                const file = source.select_folder_finish(result);
+                if (file)
+                    onChosen(file.get_path());
+            } catch (e) {
+                // Cancelled.
+            }
+        });
+    }
+
+    // One fixed root row, for games: what it is set to, a chooser and a
+    // button back to auto-detection.
     _folderRow(state, section, spec) {
         const {settings} = state;
         const row = new Adw.ActionRow({title: spec.title, activatable: true});
@@ -715,17 +868,20 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         const reset = new Gtk.Button({
             icon_name: 'edit-clear-symbolic',
             valign: Gtk.Align.CENTER,
-            tooltip_text: spec.hint ? 'Back to auto-detection' : 'Clear',
+            tooltip_text: 'Back to auto-detection',
             css_classes: ['flat'],
             visible: settings.get_string(spec.key) !== '',
         });
         row.add_suffix(reset);
         row.add_suffix(pick);
 
-        const choose = () => this._chooseFolder(state.window, settings, section, spec, () => {
-            this._showFolder(row, settings, spec);
-            reset.visible = true;
-        });
+        const choose = () => this._pickFolder(
+            state.window, `Choose ${section.title} ${spec.title.toLowerCase()}`,
+            settings.get_string(spec.key) || null, path => {
+                settings.set_string(spec.key, path);
+                this._showFolder(row, settings, spec);
+                reset.visible = true;
+            });
         pick.connect('clicked', choose);
         row.connect('activated', choose);
         reset.connect('clicked', () => {
@@ -739,84 +895,21 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
-    // Every folder a section can be pointed at. Sections have one, named
-    // <prefix>-path; games have two, and say so in `paths`.
-    _pathSpecs(section) {
-        if (section.paths)
-            return section.paths;
-        return [{
-            key: `${section.prefix}-path`,
-            title: 'Folder',
-            xdg: section.xdg,
-        }];
-    }
-
-    // The XDG user folder for the path (Music, Pictures), or
-    // null for the ones that have no sensible default: the Videos folder
-    // cannot serve both TV shows and films, and a Steam root is not an XDG
-    // folder at all.
-    _defaultFolder(spec) {
-        if (spec.xdg === null || spec.xdg === undefined)
+    // The XDG user folder a section falls back to (Music, Pictures), or null
+    // for the ones that have no sensible default: the Videos folder cannot
+    // serve both TV shows and films.
+    _defaultFolder(section) {
+        if (section.xdg === null || section.xdg === undefined)
             return null;
-        return GLib.get_user_special_dir(spec.xdg) ?? null;
+        return GLib.get_user_special_dir(section.xdg) ?? null;
     }
 
-    _folderFor(settings, spec) {
-        return settings.get_string(spec.key) || this._defaultFolder(spec);
-    }
-
-    _folderText(settings, spec) {
-        const path = this._folderFor(settings, spec);
-        if (!path)
-            return spec.hint ?? 'Not set — choose a folder';
-        const isDefault = settings.get_string(spec.key) === '';
-        return `${path}${isDefault ? '  (default)' : ''}`;
-    }
-
-    // Put a folder on its row, then find out whether it is there. The answer
-    // is never waited for: a folder on a network share or an automount that
-    // has idled out takes as long to stat as the share takes to come back,
-    // and asked synchronously that is how long the window takes to open.
+    // A games root row: the setting, or the auto-detection hint when unset.
     _showFolder(row, settings, spec) {
-        const text = this._folderText(settings, spec);
-        row.set_subtitle(text);
-        const path = this._folderFor(settings, spec);
-        if (!path)
-            return;
-        Gio.File.new_for_path(path).query_info_async(
-            'standard::type', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null,
-            (file, result) => {
-                let found = false;
-                try {
-                    found = file.query_info_finish(result).get_file_type() === Gio.FileType.DIRECTORY;
-                } catch (e) {
-                    // Missing or unreachable: the row says the same either way.
-                }
-                // The row may have been pointed somewhere else by now.
-                if (!found && this._folderFor(settings, spec) === path)
-                    row.set_subtitle(`${text}  — not found`);
-            });
-    }
-
-    _chooseFolder(window, settings, section, spec, onDone) {
-        const dialog = new Gtk.FileDialog({
-            title: `Choose ${section.title} ${spec.title.toLowerCase()}`,
-            modal: true,
-            initial_folder: Gio.File.new_for_path(
-                this._folderFor(settings, spec) ??
-                GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_VIDEOS) ?? GLib.get_home_dir()),
-        });
-        dialog.select_folder(window, null, (source, result) => {
-            try {
-                const file = source.select_folder_finish(result);
-                if (file) {
-                    settings.set_string(spec.key, file.get_path());
-                    onDone();
-                }
-            } catch (e) {
-                // Cancelled.
-            }
-        });
+        const path = settings.get_string(spec.key);
+        row.set_subtitle(path || spec.hint);
+        if (path)
+            this._checkFolder(row, path, () => settings.get_string(spec.key) === path);
     }
 
     // How many items the last scan found per section, read the same way the
@@ -864,7 +957,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             // Games are auto-detected and so always have somewhere to look;
             // every other section needs a folder before it is worth running.
             const ready = enabled.filter(s =>
-                s.paths || this._folderFor(state.settings, this._pathSpecs(s)[0]));
+                s.paths || this._foldersFor(state.settings, s).length);
             if (!ready.length) {
                 content.set_label('No folder set');
                 return;
