@@ -9,8 +9,8 @@ import Pango from 'gi://Pango';
 import {Duration, Ease, slideSwap, staggerIn} from './anim.js';
 import {fillOnScroll} from './lazyList.js';
 import {artworkStyle, createArtwork, createActionButton, createLabel, createPill, createRow, createThumb} from './widgets.js';
-import {radiusStyle} from './shape.js';
-import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
+import {PANE_INSET, radiusStyle} from './shape.js';
+import {adjustAnimationTime, ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
 
 // What the pane keeps around its content, per frame, and the gap between its
 // two columns; the stylesheet carries the same numbers. Sizes are worked out
@@ -20,7 +20,10 @@ import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/a
 // Everything below is logical pixels, as the stylesheet's are: each is
 // multiplied by the scale factor where it meets an allocation, and left alone
 // where it goes into a CSS string, which St scales itself.
-const PADDING = {pane: 28, bare: 32};
+// The bare frame keeps less than the pane's own, because the panel around it
+// adds `shape.js` PANE_INSET on top: what shows between the panel's edge and
+// the artwork is the two together, and it comes to the same 32 either way.
+const PADDING = {pane: 28, bare: 32 - PANE_INSET};
 const COLUMN_GAP = 32;
 // What the main column gives up to the list's own padding and scrollbar.
 const LIST_CHROME = 16;
@@ -110,6 +113,13 @@ export class DetailView {
         return St.ThemeContext.get_for_stage(global.stage).scale_factor;
     }
 
+    // The corner the pane and everything that fills it to the edge — the
+    // backdrop, its veil — are cut to. Inside the popup's panel that is the
+    // panel's own curve less the frame it keeps, so the two stay concentric.
+    get _paneRadius() {
+        return this._frame === 'bare' ? 'paneInner' : 'pane';
+    }
+
     // Hero size for this screen: as tall as the pane allows, capped so the
     // text column keeps its share of the width.
     _heroSize(aspect) {
@@ -136,31 +146,33 @@ export class DetailView {
         this._groups = item.groups ?? [];
         this._groupIndex = 0;
         this._list = null;
+        this._listHost = null;
         this._main = null;
         this._tabButtons = [];
 
         // The pane stacks an optional backdrop (TMDB's wide artwork, dimmed)
         // beneath the two-column content, both clipped to the pane's corners.
+        const radius = this._paneRadius;
         const pane = new St.Widget({
             style_class: this._frame === 'bare' ? 'ml-pane ml-pane-bare' : 'ml-pane',
             layout_manager: new Clutter.BinLayout(),
             x_expand: true,
             y_expand: true,
             clip_to_allocation: true,
-            style: radiusStyle('pane'),
+            style: radiusStyle(radius),
         });
         this.actor.add_child(pane);
 
         if (item.backdrop) {
             const backdrop = new St.Widget({style_class: 'ml-backdrop', x_expand: true, y_expand: true});
-            backdrop.set_style(artworkStyle(item.backdrop, 'pane'));
+            backdrop.set_style(artworkStyle(item.backdrop, radius));
             pane.add_child(backdrop);
             // A dark veil keeps the text readable over bright artwork.
             pane.add_child(new St.Widget({
                 style_class: 'ml-backdrop-veil',
                 x_expand: true,
                 y_expand: true,
-                style: radiusStyle('pane'),
+                style: radiusStyle(radius),
             }));
         }
 
@@ -200,9 +212,29 @@ export class DetailView {
 
     // Fade the second column in — as the popup's panel opens out onto it, or
     // on its own once built when the pane is already the width it will be.
+    // The list under it follows the fade rather than joining it: see _fillList.
     revealMain({delay = 0} = {}) {
         this._addMain();
         this._main?.ease({opacity: 255, delay, duration: Duration.NORMAL, mode: Ease.OUT});
+        this._fillList(delay + Duration.NORMAL);
+    }
+
+    // The first screenful of the group list, once the pane has stopped moving.
+    // It is the one piece of building left that would be felt — two dozen rows
+    // at once, where everything above it is a handful of actors — so the zoom
+    // and the widen that opened the pane, or the hero flight into it, get
+    // every frame before this to themselves. A timer and not an idle: an idle
+    // falls in the middle of an animation, which is the whole of what this
+    // avoids. Whatever fills it afterwards is `lazyList` as it scrolls.
+    _fillList(after) {
+        if (this._deferredList || this._list || !this._listHost)
+            return;
+        this._deferredList = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
+            adjustAnimationTime(after), () => {
+                this._deferredList = 0;
+                this._showGroup(this._groupIndex, {animate: false});
+                return GLib.SOURCE_REMOVE;
+            });
     }
 
     // And back out, as the panel closes back down to its artwork.
@@ -302,15 +334,8 @@ export class DetailView {
             clip_to_allocation: true,
         });
         main.add_child(this._listHost);
-        // Build the list on the next idle so the pane and hero can start
-        // animating this frame; a long season would otherwise stall the
-        // first frame of the transition.
-        this._deferredList = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-            this._deferredList = 0;
-            this._showGroup(0, {animate: false});
-            return GLib.SOURCE_REMOVE;
-        });
-
+        // The list itself is `revealMain`'s to start, once the pane has
+        // landed (_fillList).
         return main;
     }
 

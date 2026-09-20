@@ -16,10 +16,21 @@
 const MAX = 40;
 const DEFAULT_RADIUS = 18;
 
+// The frame the pop-up panel keeps around the pane inside it, so the artwork
+// reads as held by the folder's panel rather than running to its edge — the
+// shell's own $base_padding (_common.scss). Logical pixels, and it goes into a
+// CSS string, so it is never scaled here.
+export const PANE_INSET = 6;
+
 const PART = {
     art: r => r,
     hero: r => r + 4,
     pane: r => r + 12,
+    // The pane when something else draws the frame around it: the outer curve
+    // less the frame, which is what keeps the two concentric. Anything else
+    // leaves the corner reading as either too tight or too slack against the
+    // panel's own (detailDialog.js sets the pair).
+    paneInner: r => Math.max(0, r + 12 - PANE_INSET),
     launcher: r => Math.round(r * 1.8),
     badge: r => Math.round(r / 2),
 };

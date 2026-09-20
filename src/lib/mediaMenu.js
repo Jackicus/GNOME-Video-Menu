@@ -48,8 +48,10 @@ export class MediaMenu {
             onActivate: key => this._toggle(key),
         });
         this._current = null;
-        // The slot the shell's own layout last measured for a view of ours.
+        // The slot the shell's own layout last measured for a view of ours,
+        // and the box the views standing were actually built for.
         this._slot = null;
+        this._box = null;
         // How far the workspaces were last left folded, 0 to 1.
         this._fold = 0;
         // Whether the overview that is up is one a button of ours opened.
@@ -119,9 +121,7 @@ export class MediaMenu {
         this._controls._searchController?.disconnectObject(this);
         this._adjustment?.disconnectObject(this);
         this._adjustment = null;
-        for (const view of this._views.values())
-            view.destroy();
-        this._views.clear();
+        this._dropViews();
         this._slot = null;
         this._controls = this._appDisplay = this._appsBox = null;
     }
@@ -323,33 +323,50 @@ export class MediaMenu {
     // before the overview has ever been shown — worked out as that layout
     // does, since what the slot was last given says nothing of which of the
     // two sizes that was.
+    //
+    // Step for step the shell's `vfunc_allocate` (overviewControls.js:155-183),
+    // the dash included whether or not it is visible: the shell measures it
+    // either way, and Dash to Panel hides it. Reading the visibility instead
+    // left this estimate a dash-height taller than the slot the shell went on
+    // to hand out.
     _slotSize() {
         if (this._slot)
             return this._slot;
         const monitor = Main.layoutManager.primaryMonitor;
-        const area = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
-        const width = monitor.width;
-        const height = monitor.height - (area.y - monitor.y);
+        // The overview is laid out in the work area, not on the monitor: the
+        // shell's `box` here is already inset by the top bar and by whatever
+        // else is reserved (Dash to Panel's panel, 48px of it). Measuring the
+        // monitor instead left this a panel's height too tall.
+        const {width, height} = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
         const spacing = Math.round(height * VERTICAL_SPACING_SHARE);
         const maxDash = Math.round(height * DASH_MAX_SHARE);
         const search = Main.overview.searchEntry?.get_parent();
         const searchHeight = search ? search.get_preferred_height(width)[0] : 0;
         const dash = Main.overview.dash;
         dash.setMaxSize(width, maxDash);
-        const dashHeight = dash.visible
-            ? Math.min(dash.get_preferred_height(width)[1], maxDash) : 0;
+        const dashHeight = Math.min(dash.get_preferred_height(width)[1], maxDash);
         // What the apps get, plus the row of workspaces folded away above them.
         return [width, height - searchHeight - dashHeight - 2 * spacing];
     }
 
-    // Built the first time it is wanted.
+    // Built the first time it is wanted — and every section against the same
+    // box, or `columns` would mean one cover size in one section and another
+    // in the next. The first press can come before the overview has ever laid
+    // the slot out, and what that press gets is `_slotSize`'s estimate; the
+    // shell's own measurement lands a moment later and need not agree with it
+    // to the pixel. So the box the views standing were built for is kept, and
+    // when it moves they all go and are built again against the new one.
     _view(key) {
+        const [width, height] = this._slotSize();
+        if (this._box && (this._box[0] !== width || this._box[1] !== height))
+            this._dropViews();
+        this._box = [width, height];
+
         let view = this._views.get(key);
         if (view)
             return view;
 
         const section = this._sections.find(s => s.key === key);
-        const [width, height] = this._slotSize();
 
         view = createMediaView({
             section,
@@ -363,5 +380,12 @@ export class MediaMenu {
         this._appDisplay.add_child(view);
         this._views.set(key, view);
         return view;
+    }
+
+    _dropViews() {
+        for (const view of this._views.values())
+            view.destroy();
+        this._views.clear();
+        this._box = null;
     }
 }

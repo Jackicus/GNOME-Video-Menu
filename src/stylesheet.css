@@ -154,14 +154,15 @@
 
 /* In the popup (detailDialog.js) the shell's own folder panel is the surface,
    so the pane draws no chrome of its own. Its padding is what detailView.js's
-   PADDING says, since the panel is sized around it. */
+   PADDING says, since the panel is sized around it — and it is short of the
+   pane's own by shape.js PANE_INSET, which the panel keeps outside it. */
 .ml-pane-bare {
     background-color: transparent;
     border-width: 0px;
 }
 
 .ml-pane-bare .ml-pane-content {
-    padding: 32px;
+    padding: 26px;
 }
 
 /* TMDB backdrop behind the pane content, dimmed so the type stays legible. */

@@ -15,6 +15,12 @@
 // opened with no source at all, which fades it in centred (`_fadeIn`) rather
 // than zooming it out of a tile that is not there.
 //
+// `inset` is the frame the panel keeps around whatever it holds, as a folder's
+// panel frames its grid; `_sizePanel` adds it back to what it measures inside.
+//
+// What goes *behind* the panel is the folder's too, and it is asked rather
+// than assumed — see `folderBlur` below.
+//
 // Sizing is in two halves: `_budget()` is the room the work area leaves, and
 // `_sizePanel()` — the subclass's — is what it makes of it. Whatever it sets
 // is the panel's size at rest, which `_settle` restores.
@@ -31,7 +37,7 @@ import * as GrabHelper from 'resource:///org/gnome/shell/ui/grabHelper.js';
 import * as Layout from 'resource:///org/gnome/shell/ui/layout.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {Duration, Ease, POP_SCALE, rectIn} from './anim.js';
+import {Duration, Ease, POP_SCALE, easeProps, rectIn} from './anim.js';
 import {radiusStyle} from './shape.js';
 
 // Between the panel and the edges of the work area, and the size it will not
@@ -44,13 +50,37 @@ const MAX_HEIGHT = 760;
 // The shade behind the panel: the shell's DIALOG_SHADE_NORMAL, not exported.
 const SHADE = new Cogl.Color({red: 0, green: 0, blue: 0, alpha: 204});
 const CLEAR = new Cogl.Color({red: 0, green: 0, blue: 0, alpha: 0});
+// Our copy of a folder's blur, when its folders have one (folderBlur).
+const BLUR = 'media-libraries-panel-blur';
+
+// What this desktop puts behind an open folder. Stock GNOME shades to
+// DIALOG_SHADE_NORMAL and so does a panel of ours; but an extension can take
+// that over — Blur my Shell drops the shade and blurs the background instead —
+// and a panel that went on shading at 80% black would read as a different kind
+// of thing entirely beside the folders it is modelled on. So the folder is
+// asked, once per open, and whatever blur it carries is matched here in place
+// of the shade. With no folders on the desktop there is nothing to ask and the
+// shell's own shade stands.
+//
+// Private shell API, of a piece with the rest in this extension: the app
+// display's folder icons and the dialog each of them keeps.
+function folderBlur() {
+    const icons = Main.overview._overview?.controls?._appDisplay?._folderIcons ?? [];
+    for (const icon of icons) {
+        for (const effect of icon._dialog?.get_effects() ?? []) {
+            if (effect instanceof Shell.BlurEffect)
+                return {radius: effect.radius, brightness: effect.brightness};
+        }
+    }
+    return null;
+}
 
 export const MediaPanel = GObject.registerClass({
     Signals: {
         'open-state-changed': {param_types: [GObject.TYPE_BOOLEAN]},
     },
 }, class MediaLibrariesPanel extends St.Bin {
-    _init({host = null, dieWithSource = true, size = 1, accessibleName = ''} = {}) {
+    _init({host = null, dieWithSource = true, size = 1, inset = 0, accessibleName = ''} = {}) {
         super._init({
             visible: false,
             x_expand: true,
@@ -68,6 +98,7 @@ export const MediaPanel = GObject.registerClass({
         this._host = host;
         this._dieWithSource = dieWithSource;
         this._size = size;
+        this._inset = inset;
 
         this._addClickAway();
 
@@ -78,7 +109,11 @@ export const MediaPanel = GObject.registerClass({
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             orientation: Clutter.Orientation.VERTICAL,
-            style: radiusStyle('pane'),
+            // A frame of its own replaces the theme's `0 1px`; St scales a CSS
+            // length itself, so the inset goes in unmultiplied. Without one
+            // the theme's padding stands.
+            style: inset
+                ? `${radiusStyle('pane')} padding: ${inset}px;` : radiusStyle('pane'),
         });
         this._panel.set_pivot_point(0, 0);
 
@@ -99,6 +134,10 @@ export const MediaPanel = GObject.registerClass({
         this._source = null;
         this._isOpen = false;
         this._needsZoomAndFade = false;
+        // The blur this desktop's folders use instead of a shade, if any, and
+        // the timeline easing our copy of it.
+        this._blur = null;
+        this._blurTimeline = null;
         // How far ahead of the zoom the panel's own closing move leaves it,
         // for the tile that is waiting to come back. The subclass sets it.
         this._closingLead = 0;
@@ -167,6 +206,8 @@ export const MediaPanel = GObject.registerClass({
             this._grabHelper.ungrab({actor: this});
             this._grabHelper = null;
         }
+        this._blurTimeline?.stop();
+        this._blurTimeline = null;
         this._source?.disconnectObject(this);
         this._source = null;
         global.stage.disconnectObject(this);
@@ -178,6 +219,12 @@ export const MediaPanel = GObject.registerClass({
     // whole, which is how a section button serves as one.
     _sourceArt(source = this._source) {
         return source?.artwork ?? source;
+    }
+
+    // The frame the panel keeps around its content, in physical pixels: what
+    // `_sizePanel` has to add back to whatever it measures inside.
+    get _framePx() {
+        return this._inset * St.ThemeContext.get_for_stage(global.stage).scale_factor;
     }
 
     // The panel is a fixed size, centred in the work area; the container fills
@@ -197,10 +244,18 @@ export const MediaPanel = GObject.registerClass({
         this.child.set_style(`padding: ${top}px ${right}px ${bottom}px ${left}px;`);
 
         // `_size` is the `detail-size` setting as a fraction: how much of the
-        // room available the panel fills.
+        // room available the panel fills. `maxHeight` is the whole of that
+        // room — the ceiling for a panel whose content will not fit inside
+        // the fraction, which is otherwise overhung and cut square (see
+        // detailDialog.js `_sizePanel`).
+        const room = {
+            width: Math.min(MAX_WIDTH * scale, area.width - 2 * MARGIN * scale),
+            height: Math.min(MAX_HEIGHT * scale, area.height - 2 * MARGIN * scale),
+        };
         return {
-            width: Math.round(Math.min(MAX_WIDTH * scale, area.width - 2 * MARGIN * scale) * this._size),
-            height: Math.round(Math.min(MAX_HEIGHT * scale, area.height - 2 * MARGIN * scale) * this._size),
+            width: Math.round(room.width * this._size),
+            height: Math.round(room.height * this._size),
+            maxHeight: Math.round(room.height),
         };
     }
 
@@ -240,6 +295,43 @@ export const MediaPanel = GObject.registerClass({
         }, this);
     }
 
+    // Behind the panel: the shade in and out, or the folder's blur in its
+    // place on a desktop whose folders use one. The effect is carried for as
+    // long as the panel is up and taken off again by `_settle`, so nothing
+    // blurs the stage while there is no panel over it.
+    _easeBackdrop(on) {
+        this._blurTimeline?.stop();
+        this._blurTimeline = null;
+
+        if (on)
+            this._blur = folderBlur();
+
+        if (!this._blur) {
+            this.remove_effect_by_name(BLUR);
+            this.ease({
+                background_color: on ? SHADE : CLEAR,
+                duration: Duration.NORMAL,
+                mode: Ease.OUT,
+            });
+            return;
+        }
+
+        let blur = this.get_effect(BLUR);
+        if (!blur) {
+            blur = new Shell.BlurEffect({
+                name: BLUR,
+                radius: 0,
+                brightness: 1,
+                mode: Shell.BlurMode.BACKGROUND,
+            });
+            this.add_effect(blur);
+        }
+        this._blurTimeline = easeProps(blur, {
+            radius: on ? this._blur.radius : 0,
+            brightness: on ? this._blur.brightness : 1,
+        }, {duration: Duration.NORMAL, mode: Ease.OUT});
+    }
+
     _zoomAndFadeIn() {
         // The panel is at identity here — it has been allocated and nothing
         // has transformed it yet — so its own box is the frame to read the
@@ -254,11 +346,7 @@ export const MediaPanel = GObject.registerClass({
             opacity: 0,
         });
 
-        this.ease({
-            background_color: SHADE,
-            duration: Duration.NORMAL,
-            mode: Ease.OUT,
-        });
+        this._easeBackdrop(true);
         this._panel.ease({
             translation_x: 0,
             translation_y: 0,
@@ -281,11 +369,7 @@ export const MediaPanel = GObject.registerClass({
 
         const {x, y, width, height} = rectIn(this._sourceArt(), this._panel);
 
-        this.ease({
-            background_color: CLEAR,
-            duration: Duration.NORMAL,
-            mode: Ease.OUT,
-        });
+        this._easeBackdrop(false);
         this._panel.ease({
             opacity: 0,
             duration: Duration.NORMAL,
@@ -310,11 +394,7 @@ export const MediaPanel = GObject.registerClass({
         this._panel.set_pivot_point(0.5, 0.5);
         this._panel.set({scale_x: POP_SCALE, scale_y: POP_SCALE, opacity: 0});
 
-        this.ease({
-            background_color: SHADE,
-            duration: Duration.NORMAL,
-            mode: Ease.OUT,
-        });
+        this._easeBackdrop(true);
         this._panel.ease({
             scale_x: 1,
             scale_y: 1,
@@ -326,11 +406,7 @@ export const MediaPanel = GObject.registerClass({
     }
 
     _fadeOut() {
-        this.ease({
-            background_color: CLEAR,
-            duration: Duration.NORMAL,
-            mode: Ease.OUT,
-        });
+        this._easeBackdrop(false);
         this._panel.ease({
             opacity: 0,
             duration: Duration.NORMAL,
@@ -342,6 +418,9 @@ export const MediaPanel = GObject.registerClass({
     // At rest and out of sight, ready to come out of the next tile.
     _settle() {
         this.remove_all_transitions();
+        this._blurTimeline?.stop();
+        this._blurTimeline = null;
+        this.remove_effect_by_name(BLUR);
         this._panel.remove_all_transitions();
         this._panel.set_pivot_point(0, 0);
         this._panel.set_size(...this._restSize);

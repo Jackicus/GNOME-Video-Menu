@@ -28,9 +28,10 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {Duration, Ease} from './anim.js';
+import {Duration, Ease, ensureStyleDeep} from './anim.js';
 import {DetailView} from './detailView.js';
 import {MediaPanel} from './panel.js';
+import {PANE_INSET} from './shape.js';
 
 export const DetailDialog = GObject.registerClass(
 class MediaLibrariesDetailDialog extends MediaPanel {
@@ -41,6 +42,9 @@ class MediaLibrariesDetailDialog extends MediaPanel {
             // up when the pick was made, so it is never hosted in it.
             host: mode === 'modal' ? Main.layoutManager.uiGroup : null,
             dieWithSource: mode !== 'modal',
+            // The folder's panel frames what it holds; the pane sits inside
+            // that frame rather than running to the panel's edge.
+            inset: PANE_INSET,
         });
 
         this._mode = mode;
@@ -74,9 +78,11 @@ class MediaLibrariesDetailDialog extends MediaPanel {
     }
 
     // Filled before it is measured: the panel's size comes from the side
-    // column, so the pane has to hold the item first.
+    // column, so the pane has to hold the item first. What the pane is given
+    // is the budget less the frame the panel keeps around it.
     _prepare(budget) {
-        this._detail.setSize(budget.width, budget.height);
+        const frame = 2 * this._framePx;
+        this._detail.setSize(budget.width - frame, budget.height - frame);
         // Held back: the panel zooms out of the tile on the artwork alone, and
         // `_widen` brings the rest in once it has landed.
         this._detail.populate(this._item, this._section, {mainColumn: 'held'});
@@ -87,21 +93,38 @@ class MediaLibrariesDetailDialog extends MediaPanel {
     // column itself, now it is built — a preferred size needs no allocation —
     // rather than added up here from the sizes the pane used.
     _sizePanel(budget) {
+        const frame = 2 * this._framePx;
+
+        // Asked before its styles are resolved, a freshly built column answers
+        // without its own `spacing` and without the hero's margin — twenty-six
+        // pixels short on the default theme. The panel then came out shorter
+        // than the pane inside it, and the clip that holds the pane cut the
+        // backdrop's bottom corners off square against the panel's rounded
+        // ones. Nothing here may be measured before this call.
+        ensureStyleDeep(this._detail.actor);
+
         const pad = 2 * this._detail.padding;
         const [, sideWidth] = this._detail.side.get_preferred_width(-1);
         const [, sideHeight] = this._detail.side.get_preferred_height(sideWidth);
 
-        const height = Math.min(budget.height, Math.ceil(sideHeight) + pad);
+        // The pane is what the column comes to; the panel is that plus its
+        // frame. `detail-size` caps it, but never below what the column takes:
+        // a small work area at the smallest size leaves the hero on its floor
+        // (detailView.js THUMB_SIZE) and the column can then want more than
+        // the fraction allows — and a panel shorter than its pane is cut
+        // square again. The work area itself is the ceiling instead.
+        const paneWidth = budget.width - frame;
+        const paneHeight = Math.min(Math.ceil(sideHeight) + pad, budget.maxHeight - frame);
         this._wideWidth = budget.width;
-        this._narrowWidth = Math.min(budget.width, Math.ceil(sideWidth) + pad);
+        this._narrowWidth = Math.min(budget.width, Math.ceil(sideWidth) + pad + frame);
 
         // The pane is laid out once, at the width it opens to; the panel is
         // the clip that starts narrower than it.
-        this._detail.setSize(budget.width, height);
-        this._detail.actor.set_size(budget.width, height);
+        this._detail.setSize(paneWidth, paneHeight);
+        this._detail.actor.set_size(paneWidth, paneHeight);
         this._panel.remove_all_transitions();
-        this._panel.set_size(this._narrowWidth, height);
-        this._restSize = [this._narrowWidth, height];
+        this._panel.set_size(this._narrowWidth, paneHeight + frame);
+        this._restSize = [this._narrowWidth, paneHeight + frame];
     }
 
     _opened() {

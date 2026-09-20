@@ -227,6 +227,25 @@ panel is sized around a poster rather than a 720px square, it holds a
 where the folder holds its grid, and there is no name to edit — so the panel
 is styled `app-folder-dialog` and follows the shell's theme.
 
+The pane sits **inside** that panel rather than filling it, by `shape.js`
+`PANE_INSET`, so the folder's own frame shows around the artwork the way it
+shows around a folder's grid; the pane's radius is the panel's less the inset
+(`paneInner`), which is what keeps the two curves concentric. The inset comes
+out of the pane's own padding rather than being added to it, so what shows
+between the panel's edge and the artwork is the same either way —
+`detailView.js` `PADDING.bare` and the stylesheet's `.ml-pane-bare
+.ml-pane-content` are the two halves of that and must agree, or the pane
+overhangs the panel and the clip cuts the backdrop's bottom corners square.
+
+And what goes **behind** it is the folder's too, asked rather than assumed
+(`panel.js` `folderBlur`). Stock GNOME shades to `DIALOG_SHADE_NORMAL` and so
+does this; but an extension can take that over — Blur my Shell drops the shade
+and blurs the background instead — and a panel that went on shading at 80%
+black reads as a different kind of thing entirely beside the folders it is
+modelled on. So a folder's own dialog is looked at once per open and any
+`Shell.BlurEffect` on it is matched here, with the shade dropped; with no
+folders on the desktop there is nothing to ask and the shade stands.
+
 It opens in **two moves**, so the first is the folder's own: the panel zooms
 out of the tile as the artwork and its buttons alone — poster-shaped, as the
 folder's square panel is icon-shaped, so the zoom is near enough uniform — and
@@ -235,7 +254,7 @@ idle while it zoomed. Closing mirrors it. The pane is laid out once at the open
 width inside a clip that *is* the panel, so widening reveals the second column
 instead of reflowing every label under it per frame, and the panel's size is
 asked of the side column (`get_preferred_height`) rather than added up from the
-numbers the pane used.
+numbers the pane used — after `ensureStyleDeep`, see Gotchas.
 
 It hosts itself where the pick was made: in `overviewGroup` when the overview is up, in `uiGroup`
 otherwise — a tile in the modal library's own panel included, since that
@@ -283,7 +302,11 @@ reach of the one showing, so a section of thousands or a photo album of
 thousands costs a screenful either way. **And nothing is built on a frame that
 is animating**: the detail pane puts up its artwork alone and builds its second
 column on the next idle, so the flight or the zoom that opened it has the first
-frames to itself. And **nothing stats per item**:
+frames to itself — and the group list, the one piece that runs to a couple of
+dozen rows at once, waits for the opening move to finish altogether
+(`detailView.js` `_fillList`, a timer rather than an idle, because an idle
+lands in the middle of an animation, which is the whole of what it avoids).
+And **nothing stats per item**:
 `library.js` lists the three artwork cache folders once per load and looks paths
 up in that, rather than a blocking `file_test` per poster.
 
@@ -307,7 +330,10 @@ up in that, rather than a blocking `file_test` per poster.
   need — artwork (thumbnails and rows share it), hero, pane, launcher, badge — and every rounded
   surface sets it inline as it is built. The stylesheet's `border-radius` values
   are fallbacks that match the default; change `shape.js`, not them. Pills stay
-  `9999px` and are not scaled.
+  `9999px` and are not scaled. The one exception to "one radius" is a surface
+  *inside* another — `paneInner`, the pop-up pane within the folder's frame —
+  which is the outer radius less the inset, so the two curves are concentric
+  rather than one being visibly tighter than the other.
 - **The style settings are one set, for every view.** `columns` is covers per
   row wherever a grid is drawn — the wallpaper, the overview's slot, the window
   panel — capped by what fits at `mediaGrid.js`'s `MIN_ART` in the box that view
@@ -359,6 +385,29 @@ up in that, rather than a blocking `file_test` per poster.
   only.
 - **A freshly shown actor has no allocation until the next frame.** Measuring it
   for a clone flight yields NaN; `anim.js` `allocateNow()` lays it out first.
+- **And a freshly built one has no style until something asks for it.** St
+  computes a theme node lazily, but the numbers a widget takes *out* of its node
+  — an `St.BoxLayout`'s `spacing`, a `margin` — are only picked up when
+  `style-changed` is emitted on that widget, which happens no earlier than its
+  first map. So `get_preferred_height` on a column built a moment ago answers as
+  if it had no spacing and no margins: the detail popup's panel came out
+  twenty-six pixels short of the pane inside it, and the clip cut the backdrop's
+  bottom corners off square against the panel's rounded ones. `ensure_style()`
+  fixes it but only for the widget it is called on — it merely marks the
+  children dirty — so the whole subtree has to be walked: `anim.js`
+  `ensureStyleDeep()`, the counterpart to `allocateNow()`. Nothing may be
+  measured before it.
+- **The overview is laid out in the work area, not on the monitor.** The `box`
+  the shell's `ControlsManagerLayout.vfunc_allocate` divides up is already inset
+  by the top bar and by whatever else is reserved — Dash to Panel's panel, 48px
+  of it — so anything that works out one of its boxes ahead of the shell
+  (`mediaMenu.js` `_slotSize`, for a section button pressed before the overview
+  has ever been shown) must start from `getWorkAreaForMonitor`, and must measure
+  the dash whether or not it is *visible*, as the shell does. Getting either
+  wrong left the first section's grid built against a taller box than every
+  later one, which is a different cover size for the same `columns`. The box the
+  views standing were built for is kept either way, and they are all dropped and
+  built again when it moves.
 - **A scroll view's `St.Adjustment` is already disposed when its `destroy`
   fires.** Disconnecting a handler from it there throws "already disposed"
   rather than tidying anything — the adjustment dies with the view, so its
@@ -382,12 +431,17 @@ up in that, rather than a blocking `file_test` per poster.
   `global.dashToPanel.panels` and its `panels-created` signal (Dash to Panel's
   own, not the shell's, used to re-attach the section buttons when it rebuilds
   its panels) and `Dash.ShowAppsIcon` (exported, but its `_createIcon` and
-  `_iconActor` are private shape the subclass fills in). If
+  `_iconActor` are private shape the subclass fills in). `panel.js`
+  `folderBlur()` adds `appDisplay._folderIcons` and the `_dialog` each of them
+  keeps, read only to see what this desktop puts behind an open folder; it
+  finds nothing on a desktop with no folders, and a shade is what it falls back
+  to, so this one fails soft. If
   rendering breaks after a GNOME upgrade look at the first; if section
   workspaces start collapsing, at the second (`_applyWorkspaceMode` in
   `app.js`); if the overview goes empty again, or the slide goes back to bare
   wallpaper, at the third; if the section buttons stop appearing beside Show
-  Apps after a GNOME or Dash to Panel upgrade, at the fourth.
+  Apps after a GNOME or Dash to Panel upgrade, at the fourth; if the popup
+  starts shading a desktop whose folders do not, at the fifth.
 - **"Is the app grid up?" is `dash.showAppsButton.checked`, never
   `appDisplay.visible`.** The shell holds the app display visible for the whole
   slide down to the window picker (`_updateAppDisplayVisibility` takes the
