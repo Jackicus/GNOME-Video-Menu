@@ -3,18 +3,13 @@
 DEV := ./scripts/dev.sh
 NESTED := ./scripts/nested.sh
 
-.PHONY: all link install reload logs pack scan prune uninstall status clean help \
+.PHONY: all link install reload logs pack scan prune uninstall status stalls clean help \
         nested nested-headless nested-stop nested-status preview
 
 all: install
 
-link install reload logs pack scan prune uninstall status:
+link install reload logs pack scan prune uninstall status stalls clean:
 	@$(DEV) $@
-
-clean:
-	rm -f src/schemas/gschemas.compiled
-	rm -rf dist
-	find src -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 # Nested shell -- a throwaway second GNOME Shell for visual testing. Opens a live
 # mirror window on the desktop so you can watch; nested-headless skips that.

@@ -1,4 +1,4 @@
-/* Gnomeflix — St stylesheet.
+/* Media Libraries — St stylesheet.
  *
  * Paint only: layout lives in lib/. St CSS is a strict subset of web CSS
  * (no flexbox, grid, calc() or variables) but it does know the system accent
@@ -10,6 +10,10 @@
  * Surfaces echo the shell's dark theme (#222226 / #36363a panels, #fafafb
  * text) but stay translucent so the wallpaper reads through.
  *
+ * Type is in em throughout: 1em is the stage's 11pt UI font, so every size
+ * below follows Settings -> Accessibility -> Large Text, and the values land
+ * on the shell's own steps (%title_1 and friends in _common.scss).
+ *
  * Corner radii here are fallbacks only. They follow the "corner-radius"
  * setting, which St CSS cannot express, so lib/shape.js sets the real value
  * inline on every rounded surface as it is built. The numbers below match its
@@ -18,194 +22,118 @@
 
 /* ---- Surface & header ------------------------------------------------- */
 
-.gf-surface {
-    padding: 0px;
-}
-
-.gf-header {
+.ml-header {
     height: 52px;
     margin-bottom: 24px;
     spacing: 16px;
 }
 
-.gf-header-titles {
+.ml-header-titles {
     spacing: 2px;
 }
 
-.gf-header-title {
-    font-size: 26px;
+.ml-header-title {
+    font-size: 1.77em;
     font-weight: 800;
     color: #fafafb;
     text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.6);
 }
 
-.gf-header-subtitle {
-    font-size: 13px;
+.ml-header-subtitle {
+    font-size: 0.886em;
     color: rgba(250, 250, 251, 0.7);
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.6);
-}
-
-/* Circular icon button, the header-bar "back" shape. */
-.gf-icon-button {
-    width: 40px;
-    height: 40px;
-    border-radius: 9999px;
-    background-color: rgba(250, 250, 251, 0.12);
-    color: #fafafb;
-    transition-duration: 150ms;
-}
-
-.gf-icon-button:hover,
-.gf-icon-button:focus {
-    background-color: rgba(250, 250, 251, 0.2);
-}
-
-.gf-icon-button:active {
-    background-color: rgba(250, 250, 251, 0.28);
 }
 
 /* ---- Home menu --------------------------------------------------------- */
 
-.gf-home-title {
-    font-size: 34px;
+.ml-home-title {
+    font-size: 2.32em;
     font-weight: 800;
     color: #fafafb;
     text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.6);
 }
 
-.gf-home-subtitle {
+.ml-home-subtitle {
     margin-top: 4px;
     margin-bottom: 16px;
-    font-size: 14px;
+    font-size: 0.95em;
     color: rgba(250, 250, 251, 0.7);
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.6);
 }
 
-.gf-launcher {
-    padding: 0px;
-}
-
-.gf-launcher-card {
+/* The launcher itself is the shell's raised folder tile (.app-folder), which
+ * brings the card, the shadow and the hover, focus and pressed states; only
+ * the artwork wash inside it is ours. */
+.ml-launcher-card {
     border-radius: 32px;
-    background-color: #222226;
-    box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.35);
-}
-
-.gf-launcher:focus .gf-launcher-card {
-    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35), 0px 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 /* Over the section's artwork: accent at the top, settling into the shell's
  * neutral, translucent enough that the artwork still gives each card its own
  * character. */
-.gf-launcher-veil {
+.ml-launcher-veil {
     border-radius: 32px;
     border: 1px solid rgba(250, 250, 251, 0.12);
     background-gradient-direction: vertical;
     background-gradient-start: st-transparentize(st-mix(-st-accent-color, #222226, 25%), 0.4);
     background-gradient-end: st-transparentize(st-mix(-st-accent-color, #222226, 10%), 0.1);
-    transition-duration: 150ms;
 }
 
-.gf-launcher-veil-plain {
+.ml-launcher-veil-plain {
     background-gradient-start: st-mix(-st-accent-color, #222226, 55%);
     background-gradient-end: st-mix(-st-accent-color, #222226, 15%);
 }
 
-.gf-launcher:hover .gf-launcher-veil {
-    background-gradient-start: st-transparentize(st-mix(-st-accent-color, #222226, 25%), 0.6);
-    background-gradient-end: st-transparentize(st-mix(-st-accent-color, #222226, 10%), 0.3);
-}
-
-.gf-launcher-icon {
+.ml-launcher-icon {
     color: -st-accent-fg-color;
     icon-shadow: 0px 2px 8px rgba(0, 0, 0, 0.45);
 }
 
-.gf-launcher-title {
+.ml-launcher-title {
     margin-top: 14px;
-    font-size: 15px;
+    font-size: 1.02em;
     font-weight: bold;
     color: #fafafb;
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
 }
 
-.gf-launcher:hover .gf-launcher-title {
-    color: st-lighten(-st-accent-color, 25%);
-}
-
-.gf-launcher-subtitle {
+.ml-launcher-subtitle {
     margin-top: 1px;
-    font-size: 12px;
+    font-size: 0.82em;
     color: rgba(250, 250, 251, 0.6);
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
-}
-
-.gf-launcher-dot {
-    margin-top: 8px;
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    background-color: st-lighten(-st-accent-color, 25%);
 }
 
 /* ---- Library grid ------------------------------------------------------ */
 
 
-.gf-tile {
-    padding: 0px;
-}
-
-.gf-tile:focus .gf-art {
-    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35);
-}
-
 /* No box-shadow on artwork, here or on the hero: St shadows an image-backed
  * widget as a square box, ignoring its radius, which reads as a dark container
  * behind the poster (and merges into one band along a row of them). */
-.gf-art {
+.ml-art {
     border-radius: 18px;
     background-color: rgba(34, 34, 38, 0.8);
 }
 
-/* The tile labels sit below the artwork, on the wallpaper itself, so they need
- * a shadow to stay legible over a pale one — but there are eighty of them and a
- * blurred shadow is a label drawn offscreen and blurred. A hard 1px drop keeps
- * the contrast for a fraction of that. Nor do they light on hover any more: a
- * descendant :hover rule restyles the whole tile subtree on every crossing. */
-.gf-tile-title {
-    margin-top: 10px;
-    font-size: 13px;
-    font-weight: bold;
-    color: #fafafb;
-    text-shadow: 0px 1px 0px rgba(0, 0, 0, 0.8);
+/* Placeholder artwork: an accent tint behind the section icon. Flat rather
+ * than a gradient: St paints a gradient into a texture of its own per widget,
+ * and a page of placeholders is a page of them. */
+.ml-art-placeholder {
+    background-color: st-mix(-st-accent-color, #222226, 28%);
 }
 
-.gf-tile-subtitle {
-    margin-top: 1px;
-    font-size: 11px;
-    color: rgba(250, 250, 251, 0.6);
-    text-shadow: 0px 1px 0px rgba(0, 0, 0, 0.8);
-}
-
-/* Placeholder artwork: an accent-tinted gradient with the section icon. */
-.gf-art-placeholder {
-    background-gradient-direction: vertical;
-    background-gradient-start: st-mix(-st-accent-color, #222226, 45%);
-    background-gradient-end: st-mix(-st-accent-color, #222226, 12%);
-}
-
-.gf-art-placeholder-content {
+.ml-art-placeholder-content {
     spacing: 12px;
     padding: 12px;
 }
 
-.gf-art-placeholder-icon {
+.ml-art-placeholder-icon {
     color: st-transparentize(-st-accent-fg-color, 0.15);
 }
 
-.gf-art-placeholder-title {
-    font-size: 13px;
+.ml-art-placeholder-title {
+    font-size: 0.886em;
     font-weight: bold;
     color: st-transparentize(-st-accent-fg-color, 0.15);
     text-align: center;
@@ -213,60 +141,72 @@
 
 /* ---- Detail pane ------------------------------------------------------- */
 
-.gf-pane {
+.ml-pane {
     background-color: rgba(34, 34, 38, 0.72);
     border: 1px solid rgba(250, 250, 251, 0.08);
     border-radius: 30px;
 }
 
-.gf-pane-content {
+.ml-pane-content {
     padding: 28px;
     spacing: 32px;
 }
 
+/* In the popup (detailDialog.js) the shell's own folder panel is the surface,
+   so the pane draws no chrome of its own. Its padding is what detailView.js's
+   PADDING says, since the panel is sized around it. */
+.ml-pane-bare {
+    background-color: transparent;
+    border-width: 0px;
+}
+
+.ml-pane-bare .ml-pane-content {
+    padding: 32px;
+}
+
 /* TMDB backdrop behind the pane content, dimmed so the type stays legible. */
-.gf-backdrop {
+.ml-backdrop {
     border-radius: 30px;
 }
 
-.gf-backdrop-veil {
+.ml-backdrop-veil {
     border-radius: 30px;
     background-gradient-direction: horizontal;
     background-gradient-start: rgba(20, 20, 24, 0.92);
     background-gradient-end: rgba(20, 20, 24, 0.7);
 }
 
-.gf-tagline {
-    font-size: 15px;
+.ml-tagline {
+    font-size: 1.02em;
     font-style: italic;
     color: rgba(250, 250, 251, 0.7);
 }
 
-.gf-detail-side {
+.ml-detail-side {
     spacing: 12px;
 }
 
-.gf-hero {
+.ml-hero {
     border-radius: 22px;
     margin-bottom: 8px;
 }
 
-.gf-detail-main {
+.ml-detail-main {
     spacing: 14px;
 }
 
-.gf-detail-title {
-    font-size: 30px;
+.ml-detail-title {
+    font-size: 1.77em;
     font-weight: 800;
     color: #fafafb;
 }
 
-.gf-facts {
+.ml-facts {
     spacing: 8px;
 }
 
-.gf-fact {
-    font-size: 12px;
+.ml-fact {
+    font-size: 0.82em;
     font-weight: bold;
     color: rgba(250, 250, 251, 0.85);
     background-color: rgba(250, 250, 251, 0.1);
@@ -274,155 +214,110 @@
     padding: 4px 12px;
 }
 
-.gf-fact-strong {
+.ml-fact-strong {
     color: -st-accent-fg-color;
     background-color: -st-accent-color;
 }
 
-.gf-fact-rating {
+.ml-fact-rating {
     color: st-lighten(-st-accent-color, 30%);
     background-color: st-transparentize(-st-accent-color, 0.8);
 }
 
-.gf-fact-tag {
+.ml-fact-tag {
     color: rgba(250, 250, 251, 0.65);
     background-color: rgba(250, 250, 251, 0.06);
     font-weight: normal;
 }
 
-.gf-summary {
-    font-size: 14px;
+.ml-summary {
+    font-size: 0.95em;
     color: rgba(250, 250, 251, 0.78);
     line-height: 1.5;
 }
 
-/* Primary and secondary pill buttons. */
-.gf-action {
+/* Primary and secondary pill buttons. Both are the shell's own `.button` —
+ * the primary is `.button.default`, which is where the accent fill, the
+ * sizing, the focus ring and the hover and pressed states come from. Only the
+ * pill shape the design asks for is added here. */
+.ml-action,
+.ml-action-secondary {
     border-radius: 9999px;
-    padding: 10px 20px;
-    font-size: 14px;
-    font-weight: bold;
-    color: -st-accent-fg-color;
-    background-color: -st-accent-color;
-    transition-duration: 150ms;
 }
 
-.gf-action-content {
+.ml-action-content {
     spacing: 10px;
 }
 
-.gf-action:hover,
-.gf-action:focus {
-    background-color: st-lighten(-st-accent-color, 6%);
-}
-
-.gf-action:active {
-    background-color: st-darken(-st-accent-color, 6%);
-}
-
-.gf-action-secondary {
-    color: #fafafb;
-    background-color: rgba(250, 250, 251, 0.12);
-}
-
-.gf-action-secondary:hover,
-.gf-action-secondary:focus {
-    background-color: rgba(250, 250, 251, 0.2);
-}
-
-.gf-action-secondary:active {
-    background-color: rgba(250, 250, 251, 0.28);
-}
-
 /* Season / group tabs. */
-.gf-tabs {
+.ml-tabs {
     margin-top: 4px;
     spacing: 6px;
 }
 
-.gf-tab {
+/* The theme's button; `:checked` marks the open tab. */
+.ml-tab {
     border-radius: 9999px;
     padding: 6px 16px;
-    font-size: 13px;
-    font-weight: bold;
-    color: rgba(250, 250, 251, 0.75);
-    background-color: rgba(250, 250, 251, 0.08);
-    transition-duration: 150ms;
+    font-size: 0.886em;
 }
 
-.gf-tab:hover,
-.gf-tab:focus {
-    background-color: rgba(250, 250, 251, 0.16);
-    color: #fafafb;
-}
-
-.gf-tab:checked {
-    color: -st-accent-fg-color;
-    background-color: -st-accent-color;
-}
-
-.gf-group-heading {
+.ml-group-heading {
     margin-top: 4px;
-    font-size: 13px;
+    font-size: 0.886em;
     font-weight: bold;
     color: rgba(250, 250, 251, 0.55);
 }
 
-/* Entry rows. The hover highlight is one background change on the row and
- * nothing below it: a descendant rule would restyle, and under a transition
- * cross-fade through an offscreen buffer, once per child as well. */
-.gf-list-scroll {
+/* Entry rows. The highlight is the theme's flat button, one background change
+ * on the row and nothing below it: a descendant rule would restyle, and under
+ * a transition cross-fade through an offscreen buffer, once per child too. */
+.ml-list-scroll {
     margin-top: 2px;
 }
 
-.gf-list {
+.ml-list {
     spacing: 2px;
     padding-right: 8px;
 }
 
-.gf-row {
+.ml-row {
     border-radius: 18px;
     padding: 8px 14px 8px 10px;
     transition-duration: 120ms;
+    /* A button's bold would reach every label in the row, as it does not for
+     * the popover items the theme resets the same way (%menuitem). */
+    font-weight: normal;
 }
 
-.gf-row:hover,
-.gf-row:focus {
-    background-color: rgba(250, 250, 251, 0.08);
-}
-
-.gf-row:active {
-    background-color: rgba(250, 250, 251, 0.14);
-}
-
-.gf-row-index {
+.ml-row-index {
     width: 36px;
     height: 36px;
     border-radius: 9999px;
-    font-size: 12px;
+    font-size: 0.82em;
     font-weight: bold;
     color: rgba(250, 250, 251, 0.7);
     background-color: rgba(250, 250, 251, 0.08);
     text-align: center;
 }
 
-.gf-row-text {
+.ml-row-text {
     margin-left: 14px;
     margin-right: 14px;
 }
 
-.gf-row-title {
-    font-size: 14px;
+.ml-row-title {
+    font-size: 0.95em;
     color: #fafafb;
 }
 
-.gf-row-subtitle {
-    font-size: 11px;
+.ml-row-subtitle {
+    font-size: 0.75em;
     color: rgba(250, 250, 251, 0.55);
 }
 
-.gf-badge {
-    font-size: 10px;
+.ml-badge {
+    font-size: 0.68em;
     font-weight: bold;
     color: st-lighten(-st-accent-color, 30%);
     background-color: st-transparentize(-st-accent-color, 0.8);
@@ -431,50 +326,47 @@
     margin-right: 12px;
 }
 
-.gf-row-size {
-    font-size: 12px;
+.ml-row-size {
+    font-size: 0.82em;
     color: rgba(250, 250, 251, 0.5);
     margin-right: 16px;
 }
 
-.gf-row-icon {
+.ml-row-icon {
     color: rgba(250, 250, 251, 0.3);
 }
 
 /* Photo thumbnails. */
-.gf-thumb-grid {
+.ml-thumb-grid {
     padding: 4px 4px 0px 4px;
 }
 
-.gf-thumb {
-    border-radius: 18px;
-    background-color: rgba(34, 34, 38, 0.8);
-}
-
-.gf-thumb:focus {
-    box-shadow: 0px 0px 0px 3px st-transparentize(-st-accent-color, 0.35);
+/* The grid's own tile, tightened: photos are dense, so the thumbnail keeps a
+ * quarter of a poster tile's padding around its artwork. */
+.ml-thumb {
+    padding: 4px;
 }
 
 /* ---- Empty state ------------------------------------------------------- */
 
-.gf-empty {
+.ml-empty {
     spacing: 10px;
 }
 
-.gf-empty-icon {
+.ml-empty-icon {
     color: rgba(250, 250, 251, 0.35);
     margin-bottom: 8px;
 }
 
-.gf-empty-title {
-    font-size: 20px;
+.ml-empty-title {
+    font-size: 1.36em;
     font-weight: bold;
     color: #fafafb;
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
 }
 
-.gf-empty-hint {
-    font-size: 13px;
+.ml-empty-hint {
+    font-size: 0.886em;
     color: rgba(250, 250, 251, 0.65);
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
     margin-bottom: 12px;

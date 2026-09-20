@@ -1,5 +1,5 @@
 ---
-description: Show recent Gnomeflix output from the GNOME Shell journal
+description: Show recent Media Libraries output from the GNOME Shell journal
 argument-hint: "[systemd time spec, e.g. '5 min ago' — defaults to 10 min]"
 allowed-tools: Bash(./scripts/dev.sh logs:*)
 ---

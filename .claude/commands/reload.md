@@ -8,7 +8,7 @@ Apply the current `src/` edits to the running shell, then confirm they took.
 1. Run `make reload`.
 2. Run `./scripts/dev.sh logs "1 min ago"` to see what the shell logged.
 3. Report whether it came up clean. A healthy reload logs a single line:
-   `[Gnomeflix] Enabled from /run/user/1000/gnomeflix/lib-<stamp>`.
+   `[Media Libraries] Enabled from /run/user/1000/media-libraries/lib-<stamp>`.
    Anything with `Failed to load`, `Error during disable`, or a JS stack trace is a
    real failure — quote it and say which file it points at.
 

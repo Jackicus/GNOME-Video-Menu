@@ -1,9 +1,12 @@
-// Motion vocabulary borrowed from GNOME Shell itself.
+// Motion vocabulary derived from GNOME Shell's own.
 //
 // The shell animates almost everything with ease-out-quad over 250ms (overview,
 // workspace switch, app grid pages) and pops windows in with ease-out-expo over
-// 150ms from 94% scale. Using the same handful of curves and durations is what
-// makes the extension feel native rather than "animated".
+// 150ms from 94% scale. The durations below (120/200/260) are the extension's
+// own steps, not shell constants -- they are tuned to feel of a piece with the
+// shell's 250ms/150ms rather than copied from them, so the same handful of
+// curves and durations is what makes the extension feel native rather than
+// "animated".
 //
 // actor.ease() is the shell's own helper: it honours the "enable animations"
 // setting and the slow-down factor, so nothing here needs to check them.
@@ -19,6 +22,8 @@ export const Duration = {
 export const Ease = {
     OUT: Clutter.AnimationMode.EASE_OUT_QUAD,
     OUT_EXPO: Clutter.AnimationMode.EASE_OUT_EXPO,
+    // Only for a folder's icon coming back as its dialog closes.
+    IN: Clutter.AnimationMode.EASE_IN_QUAD,
 };
 
 // The scale the shell shrinks a window to while it fades in or out; the grid

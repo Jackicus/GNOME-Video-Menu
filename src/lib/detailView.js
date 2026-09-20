@@ -6,30 +6,53 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 
-import {slideSwap, staggerIn} from './anim.js';
+import {Duration, Ease, slideSwap, staggerIn} from './anim.js';
 import {fillOnScroll} from './lazyList.js';
-import {createArtwork, createActionButton, createLabel, createPill, createRow, createThumb} from './widgets.js';
+import {artworkStyle, createArtwork, createActionButton, createLabel, createPill, createRow, createThumb} from './widgets.js';
 import {radiusStyle} from './shape.js';
+import {ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
+
+// What the pane keeps around its content, per frame, and the gap between its
+// two columns; the stylesheet carries the same numbers. Sizes are worked out
+// here rather than read back off an allocation, because the popup has to know
+// how wide the side column will be before anything is on screen.
+//
+// Everything below is logical pixels, as the stylesheet's are: each is
+// multiplied by the scale factor where it meets an allocation, and left alone
+// where it goes into a CSS string, which St scales itself.
+const PADDING = {pane: 28, bare: 32};
+const COLUMN_GAP = 32;
+// What the main column gives up to the list's own padding and scrollbar.
+const LIST_CHROME = 16;
 
 // The hero fills the pane's height, less its padding and the two action
-// buttons beneath it, within these bounds.
-const HERO_MIN_HEIGHT = 300;
-const HERO_MAX_HEIGHT = 720;
-const HERO_RESERVED = 56 + 2 * 52 + 24;   // pane padding, two buttons, gaps
+// buttons beneath it, up to this cap. It stops well short of a big screen:
+// the popup is a panel the size of a folder's, not the work area, and the
+// desktop pane keeps to the same proportions.
+const HERO_MAX_HEIGHT = 560;
+const HERO_RESERVED = 2 * 52 + 28;         // two action buttons and the gaps
 const HERO_MAX_WIDTH_FRACTION = 0.34;      // of the pane width
 const THUMB_SIZE = 132;
 const THUMB_GAP = 12;
+// `.ml-thumb` padding, 4px a side: what a thumbnail's tile adds to its art.
+const THUMB_PADDING = 8;
+// 14px type at the stylesheet's line-height: 1.5.
+const SUMMARY_LINE = 21;
 const SUMMARY_LINES = 5;
-// A season is a couple of dozen episodes, but a documents collection runs to
-// hundreds and a photo album to thousands. The first batch is a screenful —
-// and the one that is staggered in — and the rest follow as the list scrolls.
+// A season is a couple of dozen episodes, but a photo album runs to thousands.
+// The first batch is a screenful — and the one that is staggered in — and the
+// rest follow as the list scrolls.
 const FIRST_ROWS = 24;
 const ROWS_PER_BATCH = 16;
 const THUMB_ROWS_PER_BATCH = 3;
 
 export class DetailView {
-    constructor({onOpen}) {
+    // `frame` is what the pane draws around itself: its own rounded, bordered
+    // surface ('pane'), or nothing ('bare') when what holds it is the surface —
+    // the shell's folder panel, in the popup.
+    constructor({onOpen, frame = 'pane'}) {
         this._onOpen = onOpen;
+        this._frame = frame;
         this._groups = [];
         this._groupIndex = 0;
         this._list = null;
@@ -39,14 +62,18 @@ export class DetailView {
         this._height = 0;
         this._heroWidth = 240;
         this._deferredList = 0;
+        this._deferredMain = 0;
+        this._columns = null;
+        this._main = null;
+        this._buildPendingMain = null;
         this.hero = null;
+        this.side = null;
         this.item = null;
 
         this.actor = new St.BoxLayout({
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
             y_expand: true,
-            style_class: 'gf-detail',
         });
     }
 
@@ -65,30 +92,57 @@ export class DetailView {
             GLib.source_remove(this._deferredList);
             this._deferredList = 0;
         }
+        if (this._deferredMain) {
+            GLib.source_remove(this._deferredMain);
+            this._deferredMain = 0;
+        }
+    }
+
+    // What the pane keeps between its frame and its columns, in physical
+    // pixels — St has already scaled the stylesheet's copy of it. Public
+    // because the popup sizes its panel around the side column and has to add
+    // it back.
+    get padding() {
+        return (PADDING[this._frame] ?? PADDING.pane) * this._scale;
+    }
+
+    get _scale() {
+        return St.ThemeContext.get_for_stage(global.stage).scale_factor;
     }
 
     // Hero size for this screen: as tall as the pane allows, capped so the
     // text column keeps its share of the width.
     _heroSize(aspect) {
-        const byHeight = Math.max(HERO_MIN_HEIGHT, Math.min(HERO_MAX_HEIGHT, this._height - HERO_RESERVED));
+        const scale = this._scale;
+        const room = this._height - 2 * this.padding - HERO_RESERVED * scale;
+        const byHeight = Math.min(HERO_MAX_HEIGHT * scale, room);
         const byWidth = Math.round(this._width * HERO_MAX_WIDTH_FRACTION * aspect);
-        const height = Math.min(byHeight, byWidth);
+        // A small screen at the smallest `detail-size` leaves less room than
+        // the buttons under the artwork take, and the artwork would come out
+        // at nothing or below it. A thumbnail's size is the floor; the panel
+        // grows around it, since it is sized from the column's own height.
+        const height = Math.max(THUMB_SIZE * scale, Math.min(byHeight, byWidth));
         return {width: Math.round(height / aspect), height};
     }
 
-    populate(item, section) {
+    // `mainColumn` is when the second column — the title, the facts and the
+    // list — joins the first: 'auto' as soon as the frame it was built on is
+    // free, 'held' when whatever is opening the pane will call `revealMain()`
+    // itself (the popup does, as it starts to widen onto it).
+    populate(item, section, {mainColumn = 'auto'} = {}) {
         this._cancelDeferred();
         this.actor.destroy_all_children();
         this.item = item;
         this._groups = item.groups ?? [];
         this._groupIndex = 0;
         this._list = null;
+        this._main = null;
         this._tabButtons = [];
 
         // The pane stacks an optional backdrop (TMDB's wide artwork, dimmed)
         // beneath the two-column content, both clipped to the pane's corners.
         const pane = new St.Widget({
-            style_class: 'gf-pane',
+            style_class: this._frame === 'bare' ? 'ml-pane ml-pane-bare' : 'ml-pane',
             layout_manager: new Clutter.BinLayout(),
             x_expand: true,
             y_expand: true,
@@ -98,22 +152,62 @@ export class DetailView {
         this.actor.add_child(pane);
 
         if (item.backdrop) {
-            const backdrop = new St.Widget({style_class: 'gf-backdrop', x_expand: true, y_expand: true});
-            backdrop.set_style(`background-image: url("file://${encodeURI(item.backdrop)}"); background-size: cover; ${radiusStyle('pane')}`);
+            const backdrop = new St.Widget({style_class: 'ml-backdrop', x_expand: true, y_expand: true});
+            backdrop.set_style(artworkStyle(item.backdrop, 'pane'));
             pane.add_child(backdrop);
             // A dark veil keeps the text readable over bright artwork.
             pane.add_child(new St.Widget({
-                style_class: 'gf-backdrop-veil',
+                style_class: 'ml-backdrop-veil',
                 x_expand: true,
                 y_expand: true,
                 style: radiusStyle('pane'),
             }));
         }
 
-        const columns = new St.BoxLayout({style_class: 'gf-pane-content', x_expand: true, y_expand: true});
+        const columns = new St.BoxLayout({style_class: 'ml-pane-content', x_expand: true, y_expand: true});
         pane.add_child(columns);
-        columns.add_child(this._buildSide(item, section));
-        columns.add_child(this._buildMain(item, section));
+        this._columns = columns;
+        this.side = this._buildSide(item, section);
+        columns.add_child(this.side);
+
+        // Only the artwork and its buttons are built now. The rest is built on
+        // the next idle, off the frames of the flight or the zoom that is
+        // opening the pane, and the list inside it later still as it scrolls.
+        this._buildPendingMain = () => this._buildMain(item, section);
+        this._deferredMain = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._deferredMain = 0;
+            this._addMain();
+            if (mainColumn === 'auto')
+                this.revealMain();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    // Build the second column, hidden, if it is not there yet.
+    _addMain() {
+        if (!this._buildPendingMain)
+            return;
+        const build = this._buildPendingMain;
+        this._buildPendingMain = null;
+        if (this._deferredMain) {
+            GLib.source_remove(this._deferredMain);
+            this._deferredMain = 0;
+        }
+        this._main = build();
+        this._main.opacity = 0;
+        this._columns.add_child(this._main);
+    }
+
+    // Fade the second column in — as the popup's panel opens out onto it, or
+    // on its own once built when the pane is already the width it will be.
+    revealMain({delay = 0} = {}) {
+        this._addMain();
+        this._main?.ease({opacity: 255, delay, duration: Duration.NORMAL, mode: Ease.OUT});
+    }
+
+    // And back out, as the panel closes back down to its artwork.
+    hideMain({duration = Duration.FAST} = {}) {
+        this._main?.ease({opacity: 0, duration, mode: Ease.OUT});
     }
 
     // Left: artwork, primary action, folder shortcut.
@@ -121,7 +215,7 @@ export class DetailView {
         // x_expand is set explicitly to false: Clutter otherwise treats a parent
         // as expanding when any descendant expands (the buttons do), and the
         // side column would swallow half of the free width.
-        const side = new St.BoxLayout({vertical: true, style_class: 'gf-detail-side', x_expand: false, y_expand: true});
+        const side = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'ml-detail-side', x_expand: false, y_expand: true});
 
         const {width: heroW, height: heroH} = this._heroSize(section.aspect);
         this._heroWidth = heroW;
@@ -131,7 +225,7 @@ export class DetailView {
             icon: section.icon,
             width: heroW,
             height: heroH,
-            styleClass: 'gf-art gf-hero',
+            styleClass: 'ml-art ml-hero',
             radius: 'hero',
         });
         side.add_child(this.hero);
@@ -151,7 +245,7 @@ export class DetailView {
             const folder = createActionButton({
                 label: 'Show in Files',
                 icon: 'folder-symbolic',
-                styleClass: 'gf-action gf-action-secondary',
+                styleClass: 'button ml-action-secondary',
             });
             folder.set_x_expand(true);
             folder.connect('clicked', () => this._onOpen(item.folder));
@@ -163,36 +257,35 @@ export class DetailView {
 
     // Right: title, facts, synopsis, group tabs, list.
     _buildMain(item, section) {
-        const main = new St.BoxLayout({vertical: true, x_expand: true, y_expand: true, style_class: 'gf-detail-main'});
+        const main = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, y_expand: true, style_class: 'ml-detail-main'});
 
-        main.add_child(createLabel(item.title, 'gf-detail-title'));
+        main.add_child(createLabel(item.title, 'ml-detail-title'));
         if (item.tagline)
-            main.add_child(createLabel(item.tagline, 'gf-tagline'));
+            main.add_child(createLabel(item.tagline, 'ml-tagline'));
 
-        const facts = new St.BoxLayout({style_class: 'gf-facts', y_align: Clutter.ActorAlign.CENTER});
+        const facts = new St.BoxLayout({style_class: 'ml-facts', y_align: Clutter.ActorAlign.CENTER});
         if (item.subtitle)
-            facts.add_child(createPill(item.subtitle, 'gf-fact gf-fact-strong'));
+            facts.add_child(createPill(item.subtitle, 'ml-fact ml-fact-strong'));
         if (item.year)
-            facts.add_child(createPill(String(item.year), 'gf-fact'));
+            facts.add_child(createPill(String(item.year), 'ml-fact'));
         if (item.rating)
-            facts.add_child(createPill(`★ ${item.rating}`, 'gf-fact gf-fact-rating'));
+            facts.add_child(createPill(`★ ${item.rating}`, 'ml-fact ml-fact-rating'));
         if (item.countLabel)
-            facts.add_child(createPill(item.countLabel, 'gf-fact'));
+            facts.add_child(createPill(item.countLabel, 'ml-fact'));
         if (item.groupLabel)
-            facts.add_child(createPill(item.groupLabel, 'gf-fact'));
+            facts.add_child(createPill(item.groupLabel, 'ml-fact'));
         for (const tag of item.tags)
-            facts.add_child(createPill(tag, 'gf-fact gf-fact-tag'));
+            facts.add_child(createPill(tag, 'ml-fact ml-fact-tag'));
         if (facts.get_n_children())
             main.add_child(facts);
 
         if (item.summary) {
-            const summary = new St.Label({text: item.summary, style_class: 'gf-summary', x_expand: true});
+            const summary = new St.Label({text: item.summary, style_class: 'ml-summary', x_expand: true});
             summary.clutter_text.line_wrap = true;
             summary.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
             summary.clutter_text.ellipsize = Pango.EllipsizeMode.END;
             // Height bounds the text so Pango ellipsises the last visible line.
-            const lineHeight = 21;
-            summary.height = lineHeight * SUMMARY_LINES;
+            summary.height = SUMMARY_LINE * this._scale * SUMMARY_LINES;
             summary.y_expand = false;
             main.add_child(summary);
         }
@@ -200,7 +293,7 @@ export class DetailView {
         if (this._groups.length > 1)
             main.add_child(this._buildTabs());
         else if (this._groups.length === 1)
-            main.add_child(new St.Label({text: this._groups[0].name, style_class: 'gf-group-heading'}));
+            main.add_child(new St.Label({text: this._groups[0].name, style_class: 'ml-group-heading'}));
 
         this._listHost = new St.Widget({
             layout_manager: new Clutter.BinLayout(),
@@ -222,10 +315,11 @@ export class DetailView {
     }
 
     _buildTabs() {
-        const tabs = new St.BoxLayout({style_class: 'gf-tabs', x_expand: true});
+        const tabs = new St.BoxLayout({style_class: 'ml-tabs', x_expand: true});
         this._groups.forEach((group, i) => {
             const tab = new St.Button({
-                style_class: 'gf-tab',
+                // The theme's button: `:checked` is what marks the open tab.
+                style_class: 'button ml-tab',
                 label: group.name,
                 toggle_mode: true,
                 reactive: true,
@@ -254,7 +348,7 @@ export class DetailView {
         const old = this._list;
         const list = group?.entries.length
             ? (this.item.layout === 'grid' ? this._buildThumbGrid(group) : this._buildList(group))
-            : new St.Label({text: 'Nothing here yet.', style_class: 'gf-empty-hint', x_expand: true});
+            : new St.Label({text: 'Nothing here yet.', style_class: 'ml-empty-hint', x_expand: true});
         this._list = list;
         this._listHost.add_child(list);
 
@@ -266,9 +360,9 @@ export class DetailView {
     }
 
     _buildList(group) {
-        const scroll = new St.ScrollView({x_expand: true, y_expand: true, overlay_scrollbars: true, style_class: 'gf-list-scroll'});
+        const scroll = new St.ScrollView({x_expand: true, y_expand: true, overlay_scrollbars: true, style_class: 'vfade ml-list-scroll'});
         scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
-        const box = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'gf-list'});
+        const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, style_class: 'ml-list'});
         scroll.set_child(box);
 
         const entries = group.entries;
@@ -288,6 +382,9 @@ export class DetailView {
                     icon: entry.icon ?? 'media-playback-start-symbolic',
                     onActivate: () => this._onOpen(entry.path),
                 });
+                // Keyboard focus has to drag the view after it, or a Tab past
+                // the fold never scrolls and so never tops the list up.
+                row.connect('key-focus-in', () => ensureActorVisibleInScrollView(scroll, row));
                 batch.push(row);
                 box.add_child(row);
             }
@@ -302,19 +399,25 @@ export class DetailView {
     }
 
     _buildThumbGrid(group) {
-        const scroll = new St.ScrollView({x_expand: true, y_expand: true, overlay_scrollbars: true, style_class: 'gf-list-scroll'});
+        const scroll = new St.ScrollView({x_expand: true, y_expand: true, overlay_scrollbars: true, style_class: 'vfade ml-list-scroll'});
         scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
-        const rows = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'gf-thumb-grid'});
+        const rows = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, style_class: 'ml-thumb-grid'});
         scroll.set_child(rows);
 
+        const scale = this._scale;
+        const thumbSize = THUMB_SIZE * scale;
+        const gap = THUMB_GAP * scale;
+        // A thumbnail takes its tile's padding as well as its artwork.
+        const cell = thumbSize + THUMB_PADDING * scale;
         // The main column is the pane minus the side column and paddings.
-        const usable = Math.max(THUMB_SIZE, this._width - this._heroWidth - 140);
-        const columns = Math.max(1, Math.floor((usable + THUMB_GAP) / (THUMB_SIZE + THUMB_GAP)));
+        const taken = this._heroWidth + 2 * this.padding + (COLUMN_GAP + LIST_CHROME) * scale;
+        const usable = Math.max(cell, this._width - taken);
+        const columns = Math.max(1, Math.floor((usable + gap) / (cell + gap)));
 
         const entries = group.entries;
         let next = 0;
         let first = true;
-        let batchRows = Math.max(1, Math.ceil(this._height / (THUMB_SIZE + THUMB_GAP)) + 1);
+        let batchRows = Math.max(1, Math.ceil(this._height / (cell + gap)) + 1);
         fillOnScroll(scroll, () => {
             const limit = Math.min(entries.length, next + batchRows * columns);
             const batch = [];
@@ -323,11 +426,16 @@ export class DetailView {
                 const end = Math.min(limit, next + columns);
                 for (; next < end; next++) {
                     const entry = entries[next];
-                    row.add_child(createThumb({
+                    const thumb = createThumb({
                         path: entry.thumb,
-                        size: THUMB_SIZE,
+                        size: thumbSize,
+                        accessibleName: entry.title,
                         onActivate: () => this._onOpen(entry.path),
-                    }));
+                    });
+                    // As in the list: Tab past the fold has to scroll, or the
+                    // grid never tops itself up.
+                    thumb.connect('key-focus-in', () => ensureActorVisibleInScrollView(scroll, thumb));
+                    row.add_child(thumb);
                 }
                 batch.push(row);
                 rows.add_child(row);

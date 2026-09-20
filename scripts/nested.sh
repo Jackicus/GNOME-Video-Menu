@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Drive a throwaway nested GNOME Shell for testing Gnomeflix.
+# Drive a throwaway nested GNOME Shell for testing Media Libraries.
 #
 #   ./scripts/nested.sh start [WxH]   start a nested shell (default 1600x900) with
-#                                     Gnomeflix ACTIVE, and open a live mirror window
+#                                     Media Libraries ACTIVE, and open a live mirror window
 #                                     of it on the real desktop
 #   ./scripts/nested.sh start --headless [WxH]
 #                                     no mirror window; screenshots are the only view
@@ -19,7 +19,7 @@
 #   ./scripts/nested.sh move X Y      move the pointer there (hover) without clicking
 #   ./scripts/nested.sh key KEYSYM    press a key or chord (Escape, Super+Page_Down, ...)
 #   ./scripts/nested.sh overview on|off   show/hide the Activities overview
-#   ./scripts/nested.sh reload        disable/enable Gnomeflix inside the nested shell
+#   ./scripts/nested.sh reload        disable/enable Media Libraries inside the nested shell
 #   ./scripts/nested.sh mirror on|off open/close the live mirror window
 #   ./scripts/nested.sh run CMD...    run CMD against the nested shell's session bus
 #   ./scripts/nested.sh logs [N] [--all]
@@ -38,15 +38,15 @@
 #
 # Nothing is left behind on the desktop: the mirror closes when the shell stops or
 # dies, and a shell started from a Claude Code session stops itself after
-# GNOMEFLIX_NESTED_IDLE seconds (default 600, 0 = never) without a command here,
+# MEDIA_LIBRARIES_NESTED_IDLE seconds (default 600, 0 = never) without a command here,
 # and when that session ends (the SessionEnd hook runs 'session-end').
 #
 set -euo pipefail
 
-UUID="gnomeflix@jackt"
+UUID="media-libraries@jackt"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SELF="$REPO_DIR/scripts/nested.sh"
-RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/gnomeflix-nested"
+RUN_DIR="${XDG_RUNTIME_DIR:-/tmp}/media-libraries-nested"
 BUS_FILE="$RUN_DIR/bus"
 PID_FILE="$RUN_DIR/pid"
 LOG_FILE="$RUN_DIR/log"
@@ -63,13 +63,13 @@ GUARD_OWNED_FILE="$RUN_DIR/owns-crash-guard"
 # runtime dir, so it creates the REAL session's copy -- and a stop inside those
 # 60 s leaves it behind, arming that for the user's next real crash.
 CRASH_GUARD="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnome-shell-disable-extensions"
-IDLE_SECS="${GNOMEFLIX_NESTED_IDLE:-600}"
+IDLE_SECS="${MEDIA_LIBRARIES_NESTED_IDLE:-600}"
 # The real session's display and bus, captured before nested_env overrides them:
 # the mirror window has to open on the desktop the user is looking at.
 HOST_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 HOST_BUS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}"
 DRIVER="$REPO_DIR/scripts/nested_driver.py"
-WL_DISPLAY="gnomeflix-dev"
+WL_DISPLAY="media-libraries-dev"
 
 info() { printf '\033[1;34m→\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
@@ -210,8 +210,8 @@ cmd_start() {
     # enabled is not listed: it would sit at INITIALIZED doing nothing.
     if nested_env gsettings get org.gnome.shell enabled-extensions 2>/dev/null | grep -qF "'$UUID'"; then
         wait_state ACTIVE \
-            || die "Gnomeflix is $(nested_state) after startup -- check './scripts/nested.sh logs' for a JS error."
-        ok "Gnomeflix ACTIVE."
+            || die "Media Libraries is $(nested_state) after startup -- check './scripts/nested.sh logs' for a JS error."
+        ok "Media Libraries ACTIVE."
     else
         enable_in_nested
     fi
@@ -226,7 +226,7 @@ enable_in_nested() {
     nested_env gnome-extensions enable "$UUID" 2>/dev/null || die "Could not enable $UUID in the nested shell."
     wait_state ACTIVE \
         || die "Enabled but $(nested_state) -- check './scripts/nested.sh logs' for a JS error."
-    ok "Gnomeflix ACTIVE."
+    ok "Media Libraries ACTIVE."
 }
 
 # Stops the nested shell after IDLE_SECS without a command, and cleans up (the
@@ -388,12 +388,16 @@ cmd_mirror() {
 cmd_run() {
     require_running
     [[ $# -gt 0 ]] || die "Nothing to run. Usage: ./scripts/nested.sh run gnome-extensions list"
-    nested_env "$@"
+    # The driver's own variables go too, so `run python3 scripts/nested_driver.py …`
+    # behaves as `do` does — without NESTED_RUN_DIR it cannot see the
+    # "overview wanted" flag, and its first screenshot dismisses the overview.
+    nested_env NESTED_GEOMETRY="$(geometry)" NESTED_RUN_DIR="$RUN_DIR" \
+        NESTED_SHOT_DIR="$REPO_DIR/dist" "$@"
 }
 
 # The shell's log is mostly the bus daemon announcing service activations and the
 # portal complaining about services a throwaway session does not have. None of it
-# is about Gnomeflix, and it buries the lines that are.
+# is about Media Libraries, and it buries the lines that are.
 filtered_log() {
     grep -Ev "^\s*$|Activating (via systemd: )?service name=|Successfully activated service|Activated service 'org.freedesktop.systemd1' failed|RealtimeKit|AT-SPI|atk-bridge|discover_other_daemon|gnome-shell-calendar-server|libecal|Error loading calendars|No entry for geolocation" \
         "$LOG_FILE" | tail -n "$1"
@@ -420,7 +424,7 @@ cmd_status() {
         pid_alive "$WATCH_PID_FILE" && (( secs > 0 )) && idle=", stops after ${secs}s idle"
         echo "nested:    running (pid $(cat "$PID_FILE")), $(geometry)$idle"
         echo "mirror:    $(mirror_running && echo "open on the desktop" || echo "closed -- 'mirror on' to watch")"
-        echo "gnomeflix: ${state:-not registered in the nested shell}"
+        echo "extension: ${state:-not registered in the nested shell}"
         echo "log:       $LOG_FILE"
     else
         echo "nested:    not running"

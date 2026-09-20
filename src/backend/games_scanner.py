@@ -55,9 +55,6 @@ NON_GAME_PATTERNS = (
     "steam controller configs",
 )
 
-STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
-
-
 def _read_text(path):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -197,7 +194,7 @@ def _steam_local_art(root, appid):
     lazy — the client downloads only what it has had to draw — so a missing
     file is normal and metadata.py fetches it from the store CDN instead.
 
-    Both are copied into Gnomeflix's own cache at drawing size: the hero art in
+    Both are copied into the extension's own cache at drawing size: the hero art in
     particular is 1920 wide, and Steam is free to clear its cache under us.
     """
     cache = os.path.join(root, "appcache", "librarycache")
@@ -472,7 +469,7 @@ def _walk_discs(folder):
 def _pcsx2_cover(covers_dir, title, serial):
     """PCSX2 names a cover after the game's title or its serial.
 
-    Scaled into Gnomeflix's own cache like every other path the shell is given.
+    Scaled into the extension's own cache like every other path the shell is given.
     """
     if not covers_dir or not os.path.isdir(covers_dir):
         return None

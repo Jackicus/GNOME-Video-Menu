@@ -1,8 +1,9 @@
-# Gnomeflix
+# Media Libraries
 
-A GNOME Shell extension (UUID `gnomeflix@jackt`) that renders a media library —
-TV shows, films, music, photos, documents and games — directly onto the desktop
-wallpaper. No window, no titlebar. Shell version 50.
+A GNOME Shell extension (UUID `media-libraries@jackt`) that renders a media library —
+TV shows, films, music, photos and games — directly onto the desktop
+wallpaper. No window, no titlebar. Shell versions 48 to 50 (48 and 49 by audit
+against the shell's sources, not by boot — see the compat note in Gotchas).
 
 ## Seeing it
 
@@ -35,23 +36,27 @@ restates it: `prefs.js` imports that list and merges in only what its pages say,
 and the scanner takes its folders from the settings rather than from a copy of
 the list. Adding or renaming one is an edit there plus the schema keys.
 
-Runtime data: `~/.cache/gnomeflix/` — `library.json`, `posters/`, `backdrops/`,
+Runtime data: `~/.cache/media-libraries/` — `library.json`, `posters/`, `backdrops/`,
 `metadata/` (one `index.json` of every cached record; the per-item files the
 first release wrote are still read once and folded in), `thumbs/`. The JS never
 scrapes; it only reads `library.json` that Python wrote.
 
 **Every artwork path in `library.json` is a file in that cache, already scaled
-to what the desktop draws** (posters 640×960, backdrops 1280×720, thumbs 384;
-`metadata.py` holds the caps). St decodes a background image at full size on
+to what the desktop ever draws, HiDPI included** (posters 512×768, backdrops
+960×540, thumbs 256×256; `metadata.py POSTER_BOX`/`BACKDROP_BOX`/`THUMB_BOX`
+hold the caps, sized off `mediaGrid.js`'s tile and `detailView.js
+HERO_MAX_HEIGHT`). St decodes a background image at full size on
 the compositor thread and keeps it, so the scanner shrinks on the way in,
 copies a `cover.jpg` it finds beside the media in with the rest, and sweeps
-and prunes the cache on each scan. The JS treats an art path outside the cache
+and prunes the cache on each scan — only when it is writing the shared
+`library.json`, though: a run sent somewhere else with `--out` is merged onto
+that file's sections and would prune artwork the real library still names. The JS treats an art path outside the cache
 as missing.
 
 ## How it fits together
 
 1. `scan_library.py` walks each section's folder, enriches items online and
-   writes `~/.cache/gnomeflix/library.json` atomically, under an `flock` so two
+   writes `~/.cache/media-libraries/library.json` atomically, under an `flock` so two
    rescans cannot each write the other's sections back as they were. It reads
    the preferences itself with `--from-settings` (narrowed by `--only
    <section>`), so which setting becomes which flag is decided in one place and
@@ -59,32 +64,54 @@ as missing.
    small thread pool — it is nearly all waiting on other people's servers — and
    each item records a `scan_sig` of its folder, so a rescan reuses the file
    list of anything that has not changed and only `--force` re-reads the lot.
-   The provider is a
-   per-section setting: TV shows use TVmaze, TMDB or Wikipedia; films use TMDB
-   or Wikipedia (Wikipedia automatically when TMDB has no key); albums use
-   iTunes; photos get local thumbnails; documents stay shallow and offline. TMDB
-   also yields a backdrop, tagline, runtime and rating, which the detail pane
-   shows. The TMDB key lives in `tmdb-api-key` and reaches the scanner as
-   `$GNOMEFLIX_TMDB_KEY`, never on argv. Each cache entry records the provider
-   that wrote it, so switching provider refetches on the next scan. Sections are merged, so rescanning one keeps the others. Music,
-   Photos and Documents default to the XDG user folders; TV Shows and Films have
+   Where a section looks is an **ordered list** of sources,
+   `<prefix>-sources`, tried one after another until one comes back with the
+   artwork: TV shows can name TVmaze, TMDB and Wikipedia; films TMDB and
+   Wikipedia; albums iTunes; photos nothing at all, since their thumbnails are
+   local. TMDB also yields a backdrop, tagline, runtime and rating, which the
+   detail pane shows. Each section has its own `<prefix>-online` switch as
+   well; there is no global one. Each cache entry records the source that wrote
+   it, so a title already answered by one of a section's sources is not fetched
+   again, and dropping that source refetches on the next scan. Sections are merged, so rescanning one keeps the others. Music
+   and Photos default to the XDG user folders; TV Shows and Films have
    no default because the Videos folder cannot serve both, so they are off until
    pointed at a folder (prefs, `dev.sh scan` and the scanner all follow this).
    Games are the exception — see `src/backend/CLAUDE.md`.
-2. `extension.js` copies `lib/` into `$XDG_RUNTIME_DIR/gnomeflix/lib-<stamp>/`
-   and imports `app.js` from there. GJS caches modules by URL for the life of
-   the shell, and static imports between sibling modules would resolve to the
-   cached copies; a fresh directory per enable defeats that, so a
-   disable/enable picks up edits **without restarting the shell**. That matters
-   on Wayland, where you can't `Alt+F2 r`.
-3. `GnomeflixApp` reads `library.json`, builds the surface inside the monitor's
+
+   A list entry is a source name with a **credential slot** — `tmdb` is
+   `tmdb@1`, `tmdb@2` is a second TMDB key to fall back to when the first is
+   rate-limited or has never heard of the title. Slots live in one `credentials`
+   setting (`a{ss}`, fields tab-separated for IGDB's id/secret pair), so the
+   slot TV shows name and the slot films name are *the same key*: edit it on
+   either page and both change. A slot with nothing in it makes the sources
+   that name it skip themselves, which is why TMDB sits unkeyed in the default
+   lists rather than being an error. The scanner reads `credentials` out of
+   GSettings itself under `--from-settings`, so neither the Rescan buttons nor
+   `dev.sh scan` hands it a key; only a standalone run falls back to
+   `$MEDIA_LIBRARIES_TMDB_KEY` / `$MEDIA_LIBRARIES_IGDB_*` for slot 1.
+2. `extension.js` copies `lib/` into `$XDG_RUNTIME_DIR/media-libraries/lib-<stamp>/`
+   and imports `app.js` from there, where `<stamp>` is a checksum of `lib/`'s
+   file contents (name, size, mtime), not a timestamp of the build. GJS caches
+   modules by URL for the life of the shell, and static imports between
+   sibling modules would resolve to the cached copies, so a directory that
+   changes name when the content changes is what lets a disable/enable pick up
+   edits **without restarting the shell** — that matters on Wayland, where you
+   can't `Alt+F2 r`. A screen lock disables the extension and unlocking
+   re-enables it (`session-modes` defaults to `['user']`), which is not an
+   edit: it stages the same checksum, skips the copy, and re-imports the same
+   URL, which GJS serves from its module cache rather than re-executing — so
+   an unlock re-enables into the same module graph the previous session used,
+   and only an edit's changed checksum ever builds a new one.
+3. `MediaLibrariesApp` reads `library.json`, builds the surface inside the monitor's
    work area, and attaches it to `Main.layoutManager._backgroundGroup` —
    rendering over the wallpaper itself. The surface holds the home menu and one
-   **page** per section (a header over a `LibraryView`), each built once — the
-   enabled ones ahead of time, one to an idle — and kept, so changing section
-   or workspace is a matter of which is visible. The detail pane is shared and
-   moves into whichever page opened it. A file monitor on `library.json`
-   rebuilds the surface when a rescan lands.
+   **page** per section (a header over a media grid, `mediaGrid.js`), each built
+   once — the enabled ones ahead of time, one to an idle — and kept, so changing
+   section or workspace is a matter of which is visible. The detail pane is
+   shared, and sits in a detail page of its own or moves into the page whose
+   grid it is replacing. A file monitor on `library.json` rebuilds the surface
+   when a rescan lands. All of this is built only when `library-opens-in` or
+   `detail-opens-in` is a surface place — see below.
 
 Navigation is three levels: the **home menu**, a section's **library** (a grid)
 and the **detail** pane (artwork, facts,
@@ -93,35 +120,146 @@ albums; a game's list is what there is to know about it — install folder,
 playtime, serial — since a game is one thing to play, not many). Opening an item flies its artwork into the hero slot with a `Clutter.Clone`
 while the grid recedes; back reverses it.
 
-Sections live on workspaces of their own. One workspace, `workspace-index`,
-carries the **home menu** (`homeView.js`): a launcher per enabled section.
-Opening one claims the trailing empty workspace for that section and slides to
-it; the header's Home button slides back and gives the workspace up, while
-swiping away leaves it open with a dot under its launcher. Open sections are
-held as `Meta.Workspace` objects, not indices, because indices shift as others
-close. GNOME's dynamic workspaces would collapse those empty workspaces, so
-`app.js` marks them with the same `_keepAliveId` the shell's workspace tracker
-uses during drag-and-drop, and releases them when a section closes and on
-disable. That is the only desktop layout: the extension was cut back to it on
-purpose, and anything beyond it (every section on one workspace behind a header
-switcher, a standing workspace per section) is to be argued back in on its own
-merits rather than restored wholesale.
+**The library grid is the shell's own app grid** (`mediaGrid.js`): a subclass of
+the class `AppDisplay` is built on, holding posters instead of apps, so pages,
+swipe, the page dots, the hover arrows and scroll-wheel paging come with it. One
+grid serves every place — the pages on the wallpaper, the pages in the
+overview's slot and the pages in the modal library's panel — and a tile is an
+`AppViewItem` around a `BaseIcon` styled
+`overview-tile`, which is where its hover, focus ring and label come from. Ours
+is only the shape: the icon asks for its artwork's proportions rather than a
+square, the layout places cells of that shape the theme's own gap apart, and a
+view builds the pages in reach of the one showing rather than a tile per item.
 
-All of that is the **desktop view**. `view-mode` chooses between it and the
-**menu view**, and only one is ever built. In the menu view `mediaMenu.js`
-puts a grid per section into the overview's app-grid slot — a subclass of the
-shell's own app view, so pages, swipe, dots and search come with it — opened
-from buttons made as Show Apps is and put beside it (in the dash, or in Dash
-to Panel's panel). Those buttons are the only way in, and they behave as Show
-Apps does: pressed again, back to the window picker. There is then no home
-menu and no grid on the wallpaper; the surface is only the detail pane of
-what was picked, on one claimed workspace that the next pick re-uses, and its
-Back returns to the workspace the pick was made from with the overview on
-that section. `window` is a value held for a view that is not built; it
-behaves as `desktop`. Both views draw a poster with `createArtwork`
+**The keyboard is St's.** The page stack inside the surface is a focus group
+(`global.focus_manager.add_group`), as the shell's dialogs and menus are, and so
+is each grid — the *nearest* group around what is focused is the one the arrow
+keys walk, which is why the grid registers itself and not just the stack. The
+group is the stack and not the surface around it because a focus group that can
+take the keyboard itself yields the focus rather than passing it on
+(`st_widget_real_navigate_focus`), and the surface *is* focusable: it is what
+holds the keyboard while nothing else does, and what Escape bubbles up to.
+Nothing is focused until a navigation key asks for it, as in the app grid; then
+Tab and the arrows move, Enter opens, and Escape (ours) backs out a level.
+Whatever holds the keyboard is constantly being hidden or destroyed — a tile as
+its grid recedes, a list as the pane is filled — and Clutter drops key focus to
+the stage when that happens, so `app.js` watches `notify::key-focus` and takes
+it back while the surface is what the workspace shows.
+
+Where each of the two things opens is a setting, and the two are read
+**independently of each other**: `library-opens-in` for a section's grid,
+`detail-opens-in` for the pane of a picked item. Both take the same four
+values, meaning the same four places — `desktop`, `workspaces`, `menu`,
+`modal` — so the pair is a matter of where things go and never of how the two
+settings negotiate. Exactly one thing follows from the pair rather than from
+either alone, and it is named: `_detailInPlace()` in `app.js`, the grid and
+the pane landing on the same workspace, which is what makes a pick a hero
+flight *in place of* the grid rather than a move to somewhere else.
+
+`desktop` and `workspaces` are the two **surface** places: the library drawn
+on the wallpaper under a **home menu** of launchers (`homeView.js`), one
+launcher per enabled section, on the workspace `workspace-index` names. They
+differ only in where what you open lands. In `desktop` every section shares
+that one workspace and the pages simply swap; in `workspaces` opening a
+section claims the trailing empty workspace for it and slides to it, the
+header's Home button slides back and gives it up, and swiping away leaves it
+open with a dot under its launcher. `detail-opens-in` `workspaces` claims one
+for the pane the same way. Claimed workspaces are held as `Meta.Workspace`
+objects, not indices, because indices shift as others close; GNOME's dynamic
+workspaces would collapse the empty ones, so `app.js` marks them with the same
+`_keepAliveId` the shell's workspace tracker uses during drag-and-drop, and
+releases them when the thing that claimed one goes back, and on disable. The
+`desktop` place runs none of that: it is the same surface with the workspace
+layer bypassed, which is why it is also the mode with the least private API
+under it.
+
+The surface is built when *either* setting is a surface place. It holds the
+home menu, one page per section — a header over a grid — and **one detail
+page**, a header over the shared pane, which is what a pick gets whenever it
+is not taking a grid's place; its header is retitled per pick, since there is
+one pane and one pick. That separation is what lets a section's workspace and
+the pane's workspace show different things at once, which the overview's
+previews clone side by side.
+
+What the surface shows is two pieces of state, not one: `_place` is what it is
+set to show and survives a rebuild, `_shown` is what is actually on the stack
+and does not. They differ exactly across a rebuild, which is why
+`_onWorkspaceChanged` compares against `_shown` — comparing against the
+remembered place left the surface blank after a rescan or a settings change.
+
+`menu` and `modal` are the two places **outside** the surface, and a library
+in either is browsed by a *browser* of its own, opened from buttons made as
+Show Apps is and put beside it (in the dash, or in Dash to Panel's panel).
+`sectionButtons.js` builds those buttons — a `Dash.ShowAppsIcon` subclass for
+its icon and label — and both places open from them. Those
+buttons are the only way in, and they behave as a dock's Show Apps does:
+pressed on the desktop they open the overview themselves, so a second press or
+Escape closes it again and lands on the desktop; pressed with the overview
+already up, back to the window picker. Show Apps itself is left alone — it
+leaves the grid as it always has, and the grid shows the apps again next time
+because a browser only lives as long as the grid is up. A rebuild (a setting
+changing, a rescan landing) tears the browser down and makes another, and puts
+back the section that was showing (`state`/`restore` on the browser), so the
+change shows where it is being looked for rather than on the next press — a
+`columns` change used to leave the overview on the app grid.
+
+In the **`menu` library** `mediaMenu.js` puts a grid per section into the
+overview's app-grid slot. In the **`modal` library** (`libraryWindow.js`) a
+section's grid goes inside the folder's panel (`panel.js`) instead — pressing
+a section's button zooms that panel, holding a `MediaView` for the section,
+out of the button, exactly as the shell zooms an app folder's panel out of its
+icon; a second press, Escape, or a click on the shade closes it, and the panel
+dies the moment the button it came from unmaps (the overview closing, on stock
+GNOME). One panel serves every section — switching sections swaps which grid
+it shows rather than building a second panel. With the library in either of
+these and the pane popping up too, nothing of ours is drawn on the wallpaper
+at all and no surface is built. Every place draws a poster with `createArtwork`
 (`widgets.js`); only what holds it differs.
 
-The menu view folds the overview's row of small workspaces away to give the
+`detail-opens-in` `menu` pops the pane up the way the shell opens an app
+folder (`detailDialog.js`, built on `panel.js` — the same `AppFolderDialog`
+host the modal library's panel also subclasses): the tile fades, the panel
+zooms out of its artwork over a shade, and a click on the shade or Escape
+zooms it back. That class is the
+shell's `AppFolderDialog` with three things changed and nothing else — the
+panel is sized around a poster rather than a 720px square, it holds a
+`DetailView` (with a `bare` frame, since the folder's panel is the surface)
+where the folder holds its grid, and there is no name to edit — so the panel
+is styled `app-folder-dialog` and follows the shell's theme.
+
+It opens in **two moves**, so the first is the folder's own: the panel zooms
+out of the tile as the artwork and its buttons alone — poster-shaped, as the
+folder's square panel is icon-shaped, so the zoom is near enough uniform — and
+then opens out sideways onto the title, facts and list, which were built on an
+idle while it zoomed. Closing mirrors it. The pane is laid out once at the open
+width inside a clip that *is* the panel, so widening reveals the second column
+instead of reflowing every label under it per frame, and the panel's size is
+asked of the side column (`get_preferred_height`) rather than added up from the
+numbers the pane used.
+
+It hosts itself where the pick was made: in `overviewGroup` when the overview is up, in `uiGroup`
+otherwise — a tile in the modal library's own panel included, since that
+panel hosts itself the same way — so any library goes with `detail-opens-in`
+`menu`. Its `GrabHelper` is what takes Escape and the keyboard; the tile going
+unmapped (the overview dismissed, the surface hidden by a workspace change, the
+library panel closing) is its cue to go at once, as it is the folder's.
+
+`detail-opens-in` `modal` is the same `DetailDialog` with two flags turned: it
+is hosted in `uiGroup` always rather than wherever the pick was made, so a pick
+made in the overview hides the overview first — which unmaps the tile, so the
+panel fades in centred instead of zooming out of it — and a pick made from the
+modal library's panel closes that panel first; and it does not die when
+its source tile unmaps, so a workspace change or a closed library panel leaves
+it up. Either way, its `GrabHelper` keeps the modal grab the whole time it is
+up, so Super and the workspace-switch keys are inert until Escape or a click
+away closes it. The grab is `Shell.ActionMode.POPUP`, the tier the app folder
+and the shell's popup menus use — not `SYSTEM_MODAL`, which is
+`modalDialog.js`'s alone and would buy nothing but the loss of the message
+tray and quick-settings shortcuts. Neither place is a window: both are shell
+chrome holding a stage grab, and a real `Meta.Window` would mean a second
+process, since the shell links no GTK.
+
+The `menu` library folds the overview's row of small workspaces away to give the
 posters its room. How far it is folded is read from the overview's own state
 adjustment, never timed: a fade of our own is out of step with the shell's
 transition, and one started as the overview unmaps stalls until it is next
@@ -139,15 +277,26 @@ sized outright.
 
 Everything that runs in `app.js` and below runs **inside the compositor**, so a
 long synchronous block is a dropped frame for the whole desktop. Two rules come
-out of that. **Nothing builds an actor per thing you own**: the library grid and
-the detail lists fill through `lazyList.js`, which builds enough to cover what
-is on screen and more as it scrolls, so a section of thousands or a photo album
-of thousands costs a screenful either way. And **nothing stats per item**:
+out of that. **Nothing builds an actor per thing you own**: the detail lists
+fill through `lazyList.js` as they scroll, and a grid builds the pages within
+reach of the one showing, so a section of thousands or a photo album of
+thousands costs a screenful either way. **And nothing is built on a frame that
+is animating**: the detail pane puts up its artwork alone and builds its second
+column on the next idle, so the flight or the zoom that opened it has the first
+frames to itself. And **nothing stats per item**:
 `library.js` lists the three artwork cache folders once per load and looks paths
 up in that, rather than a blocking `file_test` per poster.
 
 ## Design rules
 
+- **A modification of GNOME, not a second one.** Whatever the shell already has
+  is what Media Libraries uses: the app grid for a library, `AppViewItem` and
+  `overview-tile` for a tile, `icon-button` and `button` for the header and the
+  actions, `global.focus_manager` for the keyboard, the dash's own
+  `DashItemContainer` for the section buttons. Before writing a widget, look for
+  the shell's — the extension should be the media, the surface it is drawn on
+  and the few shapes GNOME has no equivalent for (the launcher card, the detail
+  pane, the rows), and nothing else.
 - **Motion copies the shell.** `anim.js` holds the only durations and curves in
   use: 120 ms for hover and things leaving, 200 ms ease-out-quad for the rest,
   260 ms for the hero flight. Don't invent new ones; `actor.ease()` already
@@ -159,6 +308,21 @@ up in that, rather than a blocking `file_test` per poster.
   surface sets it inline as it is built. The stylesheet's `border-radius` values
   are fallbacks that match the default; change `shape.js`, not them. Pills stay
   `9999px` and are not scaled.
+- **The style settings are one set, for every view.** `columns` is covers per
+  row wherever a grid is drawn — the wallpaper, the overview's slot, the window
+  panel — capped by what fits at `mediaGrid.js`'s `MIN_ART` in the box that view
+  is given, so a narrow space simply shows fewer; `corner-radius` is above;
+  `detail-size` (50–100%) is how much of the work area a pop-up detail panel
+  fills, and reaches `panel.js` `_budget()` alone. The hero artwork under it
+  has a floor of one thumbnail (`detailView.js` `THUMB_SIZE`, 132 logical px):
+  on a small work area the smallest `detail-size` leaves less room than the
+  buttons beneath the artwork take, and without the floor the hero came out at
+  nothing — so the panel shrinks, the artwork does not vanish. There is no
+  per-view copy of any of them, and a change of one rebuilds whatever is built.
+- **Type is in em.** 1em is the stage's UI font, so every size in the
+  stylesheet follows Settings → Accessibility → Large Text, and the values land
+  on the shell's own steps (`%title_1` and friends in `_common.scss`). A px
+  font-size in the stylesheet is a bug.
 - **Colour comes from the accent.** The stylesheet never hardcodes a hue. Use
   `-st-accent-color` / `-st-accent-fg-color` with `st-lighten()`, `st-mix()` and
   `st-transparentize()`, exactly as `gnome-shell.css` does. Neutrals are the
@@ -211,14 +375,34 @@ up in that, rather than a blocking `file_test` per poster.
   slide (`Main.wm._workspaceAnimation`, its `_prepareWorkspaceSwitch` and
   `_switchData.monitors[]._workspaceGroups[]._background`). All are
   underscore-prefixed shell internals that can change between releases. The
-  menu view adds `controls._stateAdjustment`, `_workspacesDisplay`, `_searchController`,
+  `menu` library adds `controls._stateAdjustment`, `_workspacesDisplay`, `_searchController`,
   the layout's `_getAppDisplayBoxForState` (wrapped, and unwrapped on
   disable), `appDisplay._box`, and `BaseAppView`, which the shell does not
-  export and is reached as `AppDisplay`'s prototype. If
+  export and is reached as `AppDisplay`'s prototype. `sectionButtons.js` adds
+  `global.dashToPanel.panels` and its `panels-created` signal (Dash to Panel's
+  own, not the shell's, used to re-attach the section buttons when it rebuilds
+  its panels) and `Dash.ShowAppsIcon` (exported, but its `_createIcon` and
+  `_iconActor` are private shape the subclass fills in). If
   rendering breaks after a GNOME upgrade look at the first; if section
   workspaces start collapsing, at the second (`_applyWorkspaceMode` in
   `app.js`); if the overview goes empty again, or the slide goes back to bare
-  wallpaper, at the third.
+  wallpaper, at the third; if the section buttons stop appearing beside Show
+  Apps after a GNOME or Dash to Panel upgrade, at the fourth.
+- **"Is the app grid up?" is `dash.showAppsButton.checked`, never
+  `appDisplay.visible`.** The shell holds the app display visible for the whole
+  slide down to the window picker (`_updateAppDisplayVisibility` takes the
+  *larger* of the states it is moving between) and does not update it again
+  once the transition is dropped, so a media view read from that visibility
+  outlived the grid: Escape left the view current and Show Apps still held by
+  us, and the next click on it went nowhere. The button's own checked state is
+  set as the grid opens and cleared on every way out — Escape, a swipe, a
+  search, leaving the overview — so `mediaMenu.js` follows it.
+- **`captured-event::key` is wider than a key press.** Key releases and the
+  input method's own events carry the same detail, and asking one of those for
+  a key symbol is a Clutter assertion in the journal, twice per keystroke. Check
+  `event.type() === Clutter.EventType.KEY_PRESS` first, exactly as the shell
+  does (`calendar.js:860`); `mediaMenu.js` `_force()` is the only such handler
+  here.
 - **A preview's background group is the monitor, allocated small.** It is the
   box the wallpaper gets, stretched in x and y independently while the overview
   animates, and it is re-allocated without reliably notifying its size — so the
@@ -238,7 +422,52 @@ up in that, rather than a blocking `file_test` per poster.
   cache folder, which is always local, is read synchronously.
 - **Check the logs.** Exceptions inside the extension are swallowed into the shell
   journal, not a terminal. `make logs` is the only way to see them.
-- **API keys are secrets.** They sit in dconf in plain text (the prefs say so).
-  Never log them, never put them on a command line, and never paste them into
-  the conversation; `~/Documents/keys/` is the user's key drop shared with other
-  projects and the prefs can import from it.
+- **A freeze leaves no log; `make stalls` catches one in the act.** It writes
+  three timestamped streams to `dist/stalls.log`: stalls of the shell's main
+  loop, processes held in the kernel (`autofs_wait` is a systemd automount
+  being mounted, `cifs_*` a share answering slowly) and which process woke an
+  automount. Measure the main loop with a `Properties.Get` on
+  `org.gnome.Shell`, never `Peer.Ping` — GDBus answers a ping on its worker
+  thread, so a ping stays fast through any stall.
+- **The shares idle out, and one of them can be offline.** `/media/LENOVO` and
+  `/media/HP-AIO` are systemd automounts with a 60 s idle timeout; the first
+  touch after that blocks until the mount is back, and an offline share blocks
+  every toucher for the whole connect timeout (11 s measured). That is why
+  nothing in `lib/` or `prefs.js` touches a media path synchronously (above),
+  and why a stale entry in `~/.local/share/recently-used.xbel` pointing at an
+  offline share stalls every Recent listing (`gvfsd-recent` stats each entry).
+- **API keys are secrets.** They sit in dconf in plain text, in the
+  `credentials` setting (the prefs say so). Never log them, never put them on a
+  command line, and never paste them into the conversation; reading them back
+  out of GSettings is fine, which is how the scanner gets them.
+  `~/Documents/keys/<SERVICE>/` is the user's key drop shared with other
+  projects, and each key row's Import button reads it from there.
+- **The 48 floor is the theme's, not the architecture's.** Every shell class
+  and private field this extension reaches is identical from 48.0 to 50.4; what
+  actually stops it going lower is CSS — the whole accent palette is
+  `-st-accent-color`, which is 47+, and `St.BoxLayout({orientation})`, used
+  throughout, is 48+. 47 would cost fourteen `orientation:` sites and an
+  `Adw.ToggleGroup` fallback (libadwaita 1.7 = 48) for a release past its
+  support window; 45/46 would need a second palette. Neither is worth it.
+- **The neutrals are the dark palette's on purpose.** The surface sits on the
+  wallpaper, where a dark ground is defensible regardless of the desktop
+  theme. A light variant is one style class synced from `Main.getStyleVariant()`
+  and roughly 17 rules, not a second stylesheet — worth doing if asked for, not
+  worth doing speculatively.
+- **JS sizes are physical pixels; CSS strings are not.** A number that meets an
+  allocation (`set_size`, a layout calculation, a budget) is logical px from a
+  constant or a setting and has to be multiplied by
+  `St.ThemeContext.get_for_stage(global.stage).scale_factor` before it is used.
+  A number written into a `set_style()` string (`radiusStyle()`, `padding:`)
+  must **not** be scaled — St scales CSS itself, so scaling it twice doubles it
+  on HiDPI. `St.Icon.icon_size` is the one exception in the allocation
+  direction: it is logical, so a size derived from physical px is *divided* by
+  the scale factor, not multiplied (`widgets.js` `createArtwork`/`createLauncher`).
+- **The staged `lib/` copy survives a screen unlock, not just a reload.**
+  `extension.js` names the staging directory after a checksum of `lib/`'s file
+  contents (name, size, mtime), not the time it was built, so re-enabling after
+  a lock (GNOME disables every extension at lock and re-enables at unlock)
+  finds the same directory and re-imports from GJS's module cache rather than
+  copying and building again. Only an actual edit — which changes the checksum
+  — makes a new stage; the sweep on the next `enable()` removes whatever stage
+  is no longer current.

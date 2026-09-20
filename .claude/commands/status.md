@@ -9,7 +9,7 @@ Run `make status` and report the four lines it prints:
   real install that won't pick up edits until `make install` is re-run.
 - **state** — `ACTIVE` is healthy. `unknown to the running shell` means the UUID was
   never registered, which needs a logout, not a reload.
-- **cache** — `~/.cache/gnomeflix`, holding `library.json`, `posters/`, `backdrops/`, `metadata/`, `thumbs/`.
+- **cache** — `~/.cache/media-libraries`, holding `library.json`, `posters/`, `backdrops/`, `metadata/`, `thumbs/`.
 - **library** — item count across sections, or `not scanned yet` (run `/scan`).
 
 If anything is off, say which command fixes it.

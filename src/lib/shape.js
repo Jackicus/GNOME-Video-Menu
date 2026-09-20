@@ -14,7 +14,7 @@
 // back to it.
 
 const MAX = 40;
-export const DEFAULT_RADIUS = 18;
+const DEFAULT_RADIUS = 18;
 
 const PART = {
     art: r => r,

@@ -21,13 +21,6 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".webm", ".m4v", ".mov", ".wmv"}
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wav", ".wma"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".avif", ".tiff", ".bmp"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
-DOCUMENT_EXTENSIONS = {
-    ".pdf", ".txt", ".md", ".rst", ".rtf", ".tex", ".epub",
-    ".odt", ".ods", ".odp", ".odg", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".csv", ".tsv",
-}
-# A collection lists at most this many files; Documents folders can be huge.
-MAX_DOCUMENTS_PER_COLLECTION = 500
 COVER_NAMES = ("cover", "folder", "front", "album", "poster", "artwork")
 
 YEAR_RE = re.compile(r"\s*[\(\[](\d{4})[\)\]]\s*$")
@@ -363,15 +356,16 @@ def _photo_album(name, folder, thumbnailer, previous, signature, list_images):
         for rel in list_images():
             path = os.path.join(folder, rel)
             try:
-                mtime = os.path.getmtime(path)
+                st = os.stat(path)
+                mtime, size_mb = st.st_mtime, round(st.st_size / (1024 * 1024), 1)
             except OSError:
-                mtime = 0
+                mtime, size_mb = 0, 0
             photos.append({
                 "filename": os.path.basename(rel),
                 "path": path,
                 "title": os.path.splitext(os.path.basename(rel))[0],
                 "thumb_path": thumbnailer(path, mtime) if thumbnailer else None,
-                "size_mb": file_size_mb(path),
+                "size_mb": size_mb,
                 "mtime": mtime,
             })
         photos.sort(key=lambda p: -p["mtime"])
@@ -387,76 +381,7 @@ def _photo_album(name, folder, thumbnailer, previous, signature, list_images):
         "scan_sig": signature,
         "photos": photos,
         "photo_count": len(photos),
-        "poster_path": photos[0]["thumb_path"],
-        "summary": None,
-        "genres": [],
-        "rating": None,
-    }
-
-
-# --------------------------------------------------------------------------
-# Documents: <root>/<Collection>/<file>.pdf (plus loose files in root)
-#
-# Deliberately shallow: only top-level folders and their direct files. A
-# Documents folder can hold hundreds of thousands of files a few levels down,
-# and this is a desktop overview, not a file manager.
-# --------------------------------------------------------------------------
-def scan_documents(root, previous=None):
-    collections = []
-    loose = files_with_ext(root, DOCUMENT_EXTENSIONS)
-    if loose:
-        collections.append(_document_collection(
-            os.path.basename(root) or "Documents", root, previous,
-            folder_signature(root, recursive=False), lambda: loose))
-    for name in subdirs(root):
-        folder = os.path.join(root, name)
-        # Only the folder's own files are listed, so its own mtime is enough.
-        collection = _document_collection(
-            name, folder, previous, folder_signature(folder, recursive=False),
-            lambda f=folder: files_with_ext(f, DOCUMENT_EXTENSIONS))
-        if collection:
-            collections.append(collection)
-    return collections
-
-
-def _document_collection(name, folder, previous, signature, list_files):
-    """One collection. A collection lists at most MAX_DOCUMENTS_PER_COLLECTION
-    files but reports how many there really are, so the total is cached beside
-    the listing rather than derived from it."""
-    collection_id = slug(folder)
-    docs = reusable(previous, collection_id, signature, "documents")
-    total = reusable(previous, collection_id, signature, "document_count") if docs is not None else None
-    if docs is None:
-        files = list_files()
-        if not files:
-            return None
-        total = len(files)
-        docs = []
-        for fname in files[:MAX_DOCUMENTS_PER_COLLECTION]:
-            path = os.path.join(folder, fname)
-            try:
-                mtime = os.path.getmtime(path)
-            except OSError:
-                mtime = 0
-            docs.append({
-                "filename": fname,
-                "path": path,
-                "title": os.path.splitext(fname)[0],
-                "ext": os.path.splitext(fname)[1].lower().lstrip("."),
-                "size_mb": file_size_mb(path),
-                "mtime": mtime,
-            })
-        docs.sort(key=lambda d: -d["mtime"])
-    return {
-        "id": collection_id,
-        "kind": "documents",
-        "title": name,
-        "year": None,
-        "folder_path": folder,
-        "scan_sig": signature,
-        "documents": docs,
-        "document_count": total if total is not None else len(docs),
-        "poster_path": None,
+        "poster_path": cache_local_art(photos[0]["path"], "poster"),
         "summary": None,
         "genres": [],
         "rating": None,

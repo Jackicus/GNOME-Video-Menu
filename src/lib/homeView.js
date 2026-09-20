@@ -1,5 +1,5 @@
 // The home menu: one large launcher per enabled section, centred on the Home
-// workspace. It is the only thing Gnomeflix keeps open; a section's workspace
+// workspace. It is the only thing Media Libraries keeps open; a section's workspace
 // exists from the moment its launcher is clicked.
 
 import St from 'gi://St';
@@ -12,10 +12,13 @@ import {createEmptyState, createIconButton, createLauncher} from './widgets.js';
 // what it shows.
 export const HOME = 'home';
 
+// Logical pixels: the sizes below are multiplied by the scale factor where
+// they meet an allocation, and left alone where they go into a CSS string —
+// St scales those itself.
 const GAP = 32;                // between launchers, both ways
 const MIN_LAUNCHER = 120;
 const MAX_LAUNCHER = 208;
-// Title, subtitle and open dot beneath a launcher's card.
+// Title, subtitle, open dot and the tile's own padding beneath a launcher's card.
 const LAUNCHER_CHROME = 64;
 // The heading above the launchers and the space beneath it.
 const HEADING_ALLOWANCE = 120;
@@ -31,7 +34,6 @@ export class HomeView {
         this._height = 0;
 
         this.actor = new St.Widget({
-            style_class: 'gf-home',
             layout_manager: new Clutter.BinLayout(),
             x_expand: true,
             y_expand: true,
@@ -62,12 +64,16 @@ export class HomeView {
     // As many launchers per row as fit at a comfortable size, as few rows as
     // that allows, and every row centred.
     _metrics(count) {
-        const perRowMax = Math.max(1, Math.floor((this._width + GAP) / (MIN_LAUNCHER + GAP)));
+        // The width and height are physical pixels, so the logical sizes above
+        // are scaled to meet them (dash.js:620 reads the factor the same way).
+        const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        const gap = GAP * scale;
+        const perRowMax = Math.max(1, Math.floor((this._width + gap) / (MIN_LAUNCHER * scale + gap)));
         const rows = Math.ceil(count / perRowMax);
         const perRow = Math.ceil(count / rows);
-        const fitW = Math.floor((this._width - GAP * (perRow - 1)) / perRow);
-        const fitH = Math.floor((this._height - HEADING_ALLOWANCE - GAP * (rows - 1)) / rows) - LAUNCHER_CHROME;
-        const size = Math.max(MIN_LAUNCHER, Math.min(MAX_LAUNCHER, fitW, fitH));
+        const fitW = Math.floor((this._width - gap * (perRow - 1)) / perRow);
+        const fitH = Math.floor((this._height - HEADING_ALLOWANCE * scale - gap * (rows - 1)) / rows) - LAUNCHER_CHROME * scale;
+        const size = Math.max(MIN_LAUNCHER * scale, Math.min(MAX_LAUNCHER * scale, fitW, fitH));
         return {perRow, size};
     }
 
@@ -87,17 +93,16 @@ export class HomeView {
         }
 
         const column = new St.BoxLayout({
-            vertical: true,
-            style_class: 'gf-home-column',
+            orientation: Clutter.Orientation.VERTICAL,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             x_expand: true,
             y_expand: true,
         });
-        column.add_child(new St.Label({text: 'Gnomeflix', style_class: 'gf-home-title', x_align: Clutter.ActorAlign.CENTER}));
+        column.add_child(new St.Label({text: 'Media Libraries', style_class: 'ml-home-title', x_align: Clutter.ActorAlign.CENTER}));
         column.add_child(new St.Label({
             text: 'Choose a library to open',
-            style_class: 'gf-home-subtitle',
+            style_class: 'ml-home-subtitle',
             x_align: Clutter.ActorAlign.CENTER,
         }));
 

@@ -1,42 +1,15 @@
-# Gnomeflix 🎬
+# Media Libraries
 
-A native GNOME desktop media player and library dashboard designed to live directly on your GNOME workspaces (e.g. Workspace 1 for TV Shows, Workspace 2 for Movies) without window containers, titlebars, or transparency workarounds.
+A GNOME Shell extension that puts a library of TV shows, films, music,
+photos and games where a media player would put a window — on the desktop, in
+the overview, or in a floating panel, your choice. It browses and launches
+what's already there; it does not play anything itself.
 
-## Architecture
+See `CLAUDE.md` for how it's built.
 
-- **Direct Desktop Rendering:** Attaches directly to `Main.layoutManager._backgroundGroup` to render over your desktop wallpaper.
-- **Zero-Snap Stacking:** Built with `Clutter.BinLayout` so all 3 navigation levels (Library, Seasons, Episodes) overlay seamlessly without vertical jumping or layout displacement.
-- **GNOME-Native Animations:** Snappy sliding transitions (`Clutter.AnimationMode.EASE_OUT_QUAD`) and cubic hero poster expansion (`Clutter.AnimationMode.EASE_OUT_CUBIC`).
-- **Dynamic Module Hot-Reloading:** `extension.js` is a thin timestamp loader that imports `lib/mediaWorkspace.js`. Any edits reload live with `make reload` — no GNOME Shell restart, which matters on Wayland.
-- **Libadwaita Preferences Dialog:** Native settings for media directories, desktop columns, workspace picker, and one-click library indexing.
+## Requirements
 
-## Directory Structure
-
-`src/` is an exact mirror of the installed extension directory, so installing is a
-straight copy (or a symlink in dev mode) with no file list to keep in sync.
-
-```text
-gnomeflix/
-├── src/                    # ← becomes ~/.local/share/gnome-shell/extensions/gnomeflix@jackt
-│   ├── metadata.json       # Extension manifest (UUID: gnomeflix@jackt)
-│   ├── extension.js        # Entry point — dynamic hot loader
-│   ├── prefs.js            # Libadwaita preferences dialog
-│   ├── stylesheet.css      # Desktop presentation styles (strict St CSS)
-│   ├── lib/
-│   │   └── mediaWorkspace.js   # Core UI, layout manager, and animation engine
-│   ├── backend/
-│   │   ├── media_scanner.py    # Local media directory parser
-│   │   ├── metadata.py         # Metadata scraper and artwork downloader
-│   │   └── scan_library.py     # CLI entry point used by the prefs Rescan button
-│   └── schemas/
-│       └── org.gnome.shell.extensions.gnomeflix.gschema.xml
-├── scripts/
-│   └── dev.sh              # install / link / reload / logs / pack / scan / status
-├── Makefile                # Thin wrapper over scripts/dev.sh
-└── README.md
-```
-
-Runtime data lives in `~/.cache/gnomeflix/` (`library.json`, `posters/`, `metadata/`).
+GNOME Shell 48–50.
 
 ## Development
 
@@ -47,7 +20,7 @@ make link
 # Apply your edits (recompiles schemas, disable/enable, no shell restart)
 make reload
 
-# Follow shell logs, filtered to Gnomeflix
+# Follow shell logs, filtered to Media Libraries
 make logs
 
 # Index the media library and download artwork
@@ -63,7 +36,24 @@ make scan
 |---|---|
 | `make install` | Clean copy into the extensions dir (a real install, not a symlink) |
 | `make status` | Show what's installed, whether it's enabled, and library size |
-| `make pack` | Build `dist/gnomeflix@jackt.shell-extension.zip` |
+| `make stalls` | Watch for desktop freezes and log what stalled, on what, with timestamps |
+| `make pack` | Build `dist/media-libraries@jackt.shell-extension.zip` |
 | `make prune` | Remove superseded builds of this extension, keeping the current one |
 | `make uninstall` | Remove the extension entirely, stale older builds included |
-| `make clean` | Drop compiled schemas, `dist/`, and `__pycache__` |
+| `make clean` | Drop compiled schemas, `dist/`, and files that don't ship |
+
+## Seeing it
+
+The UI renders onto the desktop wallpaper or into a shell-native panel, not
+into an ordinary window, so a visual change can only be verified by looking
+at it. These targets drive a throwaway **nested GNOME Shell** with a live
+mirror on the real desktop — see `CLAUDE.md` and the `drive-extension` skill
+before using them.
+
+| Command | Does |
+|---|---|
+| `make nested` | Start the nested shell, with a live mirror window on the desktop |
+| `make nested-headless` | Same, without the mirror window |
+| `make preview` | Start it (if not already running) and take a screenshot |
+| `make nested-status` | Report whether it's running |
+| `make nested-stop` | Tear it down — always run this when finished |

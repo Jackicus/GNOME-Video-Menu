@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Index the media library and write the library.json Gnomeflix reads.
+"""Index the media library and write the library.json Media Libraries reads.
 
 Each section is scanned only when its path is given, and the result is merged
 into the existing library.json so a rescan of one section keeps the others.
@@ -9,6 +9,7 @@ section and the two paths only override auto-detection.
     python3 scan_library.py --tv-path "~/Videos/TV Shows" --films-path ~/Videos/Films
     python3 scan_library.py --music-path ~/Music --offline
     python3 scan_library.py --games
+    python3 scan_library.py --films-path ~/Videos/Films --source film=tmdb,wikipedia
 
 `--from-settings` fills all of that in from GSettings instead, optionally
 narrowed with `--only`, so the Rescan buttons in the preferences and
@@ -22,6 +23,7 @@ Run standalone for debugging, or from the Rescan buttons in the preferences.
 """
 
 import argparse
+import ast
 import concurrent.futures
 import contextlib
 import fcntl
@@ -34,13 +36,14 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from games_scanner import scan_games  # noqa: E402
-from media_scanner import scan_documents, scan_films, scan_music, scan_photos, scan_tv  # noqa: E402
+from media_scanner import scan_films, scan_music, scan_photos, scan_tv  # noqa: E402
 from metadata import (  # noqa: E402
-    CACHE_DIR, MetadataService, fit_cached_art, localise_art, make_thumbnailer, prune_art,
+    CACHE_DIR, PROVIDERS, MetadataService, fit_cached_art, localise_art, make_thumbnailer,
+    prune_art, source_id,
 )
 
 LIBRARY_VERSION = 2
-SECTIONS = ("tv", "films", "music", "photos", "documents", "games")
+SECTIONS = ("tv", "films", "music", "photos", "games")
 
 # Enrichment is almost entirely waiting on someone else's server, so it runs on
 # a small pool. Small deliberately: every provider here is free, and Wikipedia
@@ -48,10 +51,14 @@ SECTIONS = ("tv", "films", "music", "photos", "documents", "games")
 # thing is not to provoke it).
 ENRICH_WORKERS = 6
 
-SCHEMA = "org.gnome.shell.extensions.gnomeflix"
+SCHEMA = "org.gnome.shell.extensions.media-libraries"
 # The schemas ship beside the backend in the extension directory, so they are
 # found from the installed copy as readily as from the repo.
 SCHEMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schemas")
+
+# The library the extension reads. A run with --out somewhere else writes a
+# library of its own, but shares this machine's one artwork cache.
+LIBRARY_PATH = os.path.join(CACHE_DIR, "library.json")
 
 # section key -> (GSettings key prefix, XDG user folder when the path is unset).
 # TV shows and films have no default: the Videos folder cannot serve both.
@@ -60,10 +67,13 @@ SECTION_SETTINGS = {
     "films": ("films", None),
     "music": ("music", "MUSIC"),
     "photos": ("photos", "PICTURES"),
-    "documents": ("documents", "DOCUMENTS"),
     "games": ("games", None),
 }
-XDG_FALLBACKS = {"MUSIC": "Music", "PICTURES": "Pictures", "DOCUMENTS": "Documents"}
+# A section is a page in the preferences; a kind is what metadata.py calls the
+# items on it. They differ for films and music, so the mapping is written down
+# once rather than guessed at either end.
+SECTION_KINDS = {"tv": "tv", "films": "film", "music": "album", "games": "game"}
+XDG_FALLBACKS = {"MUSIC": "Music", "PICTURES": "Pictures"}
 
 
 def load_existing(path):
@@ -113,6 +123,27 @@ def _setting(key):
     return out[1:-1] if len(out) >= 2 and out[0] == out[-1] == "'" else out
 
 
+def _setting_value(key):
+    """One GSettings value as a Python object, for the keys that are not plain
+    strings — `credentials` (a{ss}) and each section's source list (as).
+
+    gsettings prints GVariants in a syntax that is also valid Python literal
+    syntax, optionally behind an `@type` prefix for an empty container, so
+    ast.literal_eval reads them without pulling gi into the backend. It only
+    ever evaluates literals, so a credential holding anything at all is still
+    only ever data.
+    """
+    raw = _setting(key)
+    if raw is None:
+        return None
+    if raw.startswith("@"):
+        raw = raw.split(" ", 1)[1] if " " in raw else ""
+    try:
+        return ast.literal_eval(raw)
+    except (ValueError, SyntaxError):
+        return None
+
+
 def xdg_dir(name):
     """An XDG user folder, read from the file GLib and xdg-user-dir both read,
     so the backend needs no bindings of its own to agree with them."""
@@ -135,9 +166,9 @@ def apply_settings(args, parser):
     This is the only place that knows how a setting becomes a scanner flag, so
     the preferences and dev.sh cannot drift from it or from each other.
     """
-    if _setting("online-metadata") is None:
+    if _setting("library-opens-in") is None:
         parser.error(
-            "--from-settings could not read the Gnomeflix settings. Compile the "
+            "--from-settings could not read the Media Libraries settings. Compile the "
             f"schemas ({SCHEMA_DIR}) or pass the folders explicitly.")
 
     only = set(args.only or SECTION_SETTINGS)
@@ -156,24 +187,44 @@ def apply_settings(args, parser):
         else:
             print(f"{key}: no folder set, skipping")
 
-    if _setting("online-metadata") == "false":
-        args.offline = True
-    args.tv_provider = args.tv_provider or _setting("tv-shows-provider")
-    args.films_provider = args.films_provider or _setting("films-provider")
+    # Sources, the switch that gates them and the keys they need are all per
+    # section now, so they are read per section too. A section left out of
+    # --only keeps whatever its items already had cached; it is not scanned.
+    for key in only:
+        prefix = SECTION_SETTINGS[key][0]
+        kind = SECTION_KINDS.get(key)
+        if kind is None:   # photos never go online
+            continue
+        if kind not in args.sources:
+            listed = _setting_value(f"{prefix}-sources")
+            if isinstance(listed, list):
+                args.sources[kind] = [str(e) for e in listed]
+        if _setting(f"{prefix}-online") == "false":
+            args.offline_kinds.add(kind)
+
+    # Read here rather than taken from the environment, so the preferences and
+    # dev.sh both just run the scanner and neither has to hand it a key.
+    credentials = _setting_value("credentials")
+    if isinstance(credentials, dict):
+        args.credentials = {str(k): str(v) for k, v in credentials.items()}
 
 
 # --------------------------------------------------------------------------
 # Scanning
 # --------------------------------------------------------------------------
 def enrich_all(meta, items):
-    """Fill in metadata and artwork for `items`, several at a time."""
+    """Fill in metadata and artwork for `items`, several at a time.
+
+    A section that is not going online has nothing to wait for — it only reads
+    the cache — so it is done in line rather than on the pool.
+    """
     def one(item):
         try:
             meta.enrich(item)
         except Exception as e:  # one bad item must never abort the scan
             print(f"Metadata failed for '{item.get('title')}': {e}")
 
-    if len(items) < 2 or not meta.online:
+    if len(items) < 2 or not meta.online_for(items[0]["kind"]):
         for item in items:
             one(item)
         return
@@ -195,21 +246,37 @@ def main():
     parser.add_argument("--films-path", help="Films folder")
     parser.add_argument("--music-path", help="Music folder")
     parser.add_argument("--photos-path", help="Photos folder")
-    parser.add_argument("--documents-path", help="Documents folder")
     parser.add_argument("--games", action="store_true", help="Index installed Steam and PS2 games")
     parser.add_argument("--steam-path", default="", help="Steam library root (empty: auto-detect)")
     parser.add_argument("--pcsx2-path", default="", help="PCSX2 config folder (empty: auto-detect)")
-    parser.add_argument("--tv-provider", choices=("tvmaze", "tmdb", "wikipedia"), help="Where TV metadata comes from")
-    parser.add_argument("--films-provider", choices=("tmdb", "wikipedia"), help="Where film metadata comes from")
+    parser.add_argument("--source", action="append", default=[], metavar="KIND=A,B",
+                        help="Sources for one kind, in the order they are tried "
+                             "(tv, film, album, game). Repeatable. Keys come from "
+                             "the preferences or the environment, never from here.")
     parser.add_argument("--offline", action="store_true", help="Skip online metadata and artwork")
     parser.add_argument("--from-settings", action="store_true",
-                        help="Take the folders, providers and online setting from the preferences")
+                        help="Take the folders, sources, keys and online switches from the preferences")
     parser.add_argument("--only", action="append", choices=SECTIONS, metavar="SECTION",
                         help="With --from-settings, scan just this section (repeatable)")
     parser.add_argument("--force", action="store_true",
                         help="Re-read every folder instead of reusing the entries of unchanged ones")
-    parser.add_argument("--out", default=os.path.join(CACHE_DIR, "library.json"))
+    parser.add_argument("--out", default=LIBRARY_PATH)
     args = parser.parse_args()
+
+    # Filled either from --source or, below, from the preferences.
+    args.sources = {}
+    args.offline_kinds = set()
+    args.credentials = {}
+    for spec in args.source:
+        kind, _, listed = spec.partition("=")
+        kind = kind.strip()
+        if kind not in PROVIDERS:
+            parser.error(f"--source: unknown kind '{kind}'; expected one of {', '.join(PROVIDERS)}")
+        entries = [e.strip() for e in listed.split(",") if e.strip()]
+        unknown = [e for e in entries if source_id(e) not in PROVIDERS[kind]]
+        if unknown:
+            parser.error(f"--source {kind}: {', '.join(unknown)} cannot answer for {kind}")
+        args.sources[kind] = entries
 
     if args.from_settings:
         apply_settings(args, parser)
@@ -221,7 +288,6 @@ def main():
         "films": args.films_path,
         "music": args.music_path,
         "photos": args.photos_path,
-        "documents": args.documents_path,
     }
     # Games have no media folder to point at, so the flag alone runs them —
     # and naming either root implies it.
@@ -233,12 +299,15 @@ def main():
                 "a folder. Set one in the preferences.")
         parser.error(
             "give at least one of --tv-path, --films-path, --music-path, "
-            "--photos-path, --documents-path, --games, --from-settings")
+            "--photos-path, --games, --from-settings")
 
-    # Keys come from the environment (GNOMEFLIX_TMDB_KEY, GNOMEFLIX_IGDB_*), never argv.
+    # Keys come from the preferences, or from the environment
+    # (MEDIA_LIBRARIES_TMDB_KEY, MEDIA_LIBRARIES_IGDB_*) for a standalone run. Never argv.
     meta = MetadataService(
         online=not args.offline,
-        providers={"tv": args.tv_provider, "film": args.films_provider},
+        sources=args.sources,
+        credentials=args.credentials,
+        offline_kinds=args.offline_kinds,
     )
 
     with library_lock(args.out):
@@ -275,10 +344,8 @@ def main():
                 items = scan_films(path, exclude=[os.path.expanduser(args.tv_path or "")], previous=previous)
             elif key == "music":
                 items = scan_music(path, previous)
-            elif key == "photos":
-                items = scan_photos(path, make_thumbnailer(), previous)
             else:
-                items = scan_documents(path, previous)
+                items = scan_photos(path, make_thumbnailer(), previous)
 
             if key in ("tv", "films", "music"):
                 enrich_all(meta, items)
@@ -319,8 +386,13 @@ def main():
         os.replace(tmp, args.out)  # atomic: the shell's file monitor never sees a half-written file
         print(f"Wrote {args.out}")
         # Pruned after the write and against every section at once: what the
-        # merged library points at is exactly what is worth keeping.
-        dropped = prune_art(library["sections"])
+        # merged library points at is exactly what is worth keeping. Only for
+        # the real library, though — a run written elsewhere was merged onto
+        # that file's sections, not these, so pruning against it would delete
+        # the artwork the extension is still pointing at.
+        dropped = 0
+        if os.path.abspath(args.out) == os.path.abspath(LIBRARY_PATH):
+            dropped = prune_art(library["sections"])
         if fitted or moved or dropped:
             print(f"Artwork cache: {fitted} scaled down, {moved} copied in, {dropped} removed")
     return 0

@@ -1,24 +1,33 @@
-"""Online metadata and artwork, cached under ~/.cache/gnomeflix.
+"""Online metadata and artwork, cached under ~/.cache/media-libraries.
 
-Providers, chosen per section in the preferences:
+Sources, an ordered list per section in the preferences:
 
-  TV shows   tvmaze (default, keyless) | tmdb (needs a key) | wikipedia
-  Films      tmdb (default, needs a key; falls back to wikipedia) | wikipedia
+  TV shows   tvmaze (keyless) | tmdb (needs a key) | wikipedia (keyless)
+  Films      tmdb (needs a key) | wikipedia (keyless)
   Albums     itunes (keyless)
   Games      steam (keyless, Steam apps) | igdb (needs Twitch credentials, PS2)
 
+The list is tried in order until one of them comes back with the artwork, so a
+section can name several and a title TMDB has never heard of still gets a
+poster from Wikipedia. A source whose credential is not set skips itself rather
+than failing, which is why TMDB can sit in every default list unkeyed.
+
 TMDB is the richest: poster, backdrop, tagline, runtime, genres and a rating.
 TVmaze covers TV well without a key. Wikipedia gives a poster and the lead
-paragraph for almost anything. Photos and documents never go online.
+paragraph for almost anything. Photos never go online.
 
-Games are the one kind whose source is decided by the item rather than by a
-preference: a Steam app has its own keyless store record and artwork CDN, and a
-PS2 disc image has neither, so it falls to IGDB when the Twitch credentials are
-set and to the drawn placeholder when they are not.
+Games are the one kind whose source is decided by the item rather than by the
+list: a Steam app has its own keyless store record and artwork CDN, and a PS2
+disc image has neither, so it falls to IGDB when the Twitch credentials are set
+and to the drawn placeholder when they are not. The list still decides which
+IGDB credential is tried first.
 
-Keys arrive through the environment (GNOMEFLIX_TMDB_KEY,
-GNOMEFLIX_IGDB_CLIENT_ID, GNOMEFLIX_IGDB_CLIENT_SECRET), never argv, so they do
-not show up in `ps`.
+A source entry is a name, optionally with a credential slot — "tmdb" is the
+same as "tmdb@1", "tmdb@2" is a second TMDB key to fall back to. Credentials
+arrive from the preferences (the `credentials` setting, read by
+scan_library.py) or, for a standalone run, from the environment
+(MEDIA_LIBRARIES_TMDB_KEY, MEDIA_LIBRARIES_IGDB_CLIENT_ID, MEDIA_LIBRARIES_IGDB_CLIENT_SECRET).
+Neither is ever argv, so they do not show up in `ps`.
 
 Everything degrades to "no metadata" on failure: the UI draws a placeholder
 tile from the title when poster_path is null, so nothing is ever generated on
@@ -42,7 +51,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-CACHE_DIR = os.path.expanduser("~/.cache/gnomeflix")
+CACHE_DIR = os.path.expanduser("~/.cache/media-libraries")
 POSTER_CACHE_DIR = os.path.join(CACHE_DIR, "posters")
 BACKDROP_CACHE_DIR = os.path.join(CACHE_DIR, "backdrops")
 METADATA_CACHE_DIR = os.path.join(CACHE_DIR, "metadata")
@@ -56,18 +65,20 @@ METADATA_INDEX = os.path.join(METADATA_CACHE_DIR, "index.json")
 # interrupted loses at most this many freshly fetched records (never artwork,
 # which is on disk the moment it lands).
 INDEX_FLUSH_EVERY = 25
-USER_AGENT = "Gnomeflix/2.0"
+USER_AGENT = "MediaLibraries/2.0"
 
 # The largest the desktop ever draws each kind of artwork, doubled where a
 # HiDPI monitor would ask for twice the pixels, and no further — everything
 # above this is memory the compositor holds and never uses.
-#   poster    320px grid tile (libraryView MAX_TILE), 480x720 detail hero
+#   poster    a 320px grid tile (mediaGrid.js iconSize, floored by MIN_ART) at
+#             scale 2, and the 560px detail hero (detailView.js
+#             HERO_MAX_HEIGHT) at scale 1
 #   backdrop  the detail pane's own backing, dimmed under a veil
-#   thumb     132px in the photo grid, and the first one is the album's poster
-#             at up to 320px; an album can hold thousands, so they stay modest
-POSTER_BOX = (640, 960)
-BACKDROP_BOX = (1280, 720)
-THUMB_BOX = (384, 384)
+#   thumb     132px in the photo grid at scale 2; an album can hold thousands,
+#             so they stay modest
+POSTER_BOX = (512, 768)
+BACKDROP_BOX = (960, 540)
+THUMB_BOX = (256, 256)
 ART_CACHES = (
     (POSTER_CACHE_DIR, POSTER_BOX),
     (BACKDROP_CACHE_DIR, BACKDROP_BOX),
@@ -98,10 +109,55 @@ PROVIDERS = {
     "album": ("itunes",),
     "game": ("steam", "igdb"),
 }
-DEFAULT_PROVIDER = {"tv": "tvmaze", "film": "tmdb", "album": "itunes", "game": "steam"}
+# The list each kind falls back to when nothing was passed in — a standalone
+# run with no preferences to read. It matches the schema's defaults.
+DEFAULT_SOURCES = {
+    "tv": ("tvmaze", "tmdb@1", "wikipedia"),
+    "film": ("tmdb@1", "wikipedia"),
+    "album": ("itunes",),
+    "game": ("steam", "igdb@1"),
+}
+# How many fields a source's credential is made of; absent means it needs none.
+# Must match the `fields` each source declares in prefs.js.
+CREDENTIAL_FIELDS = {"tmdb": 1, "igdb": 2}
+# Fields of one credential are tab-separated, as the `credentials` setting
+# stores them.
+FIELD_SEP = "\t"
 # What wrote a cache entry that predates the "provider" field.
 LEGACY_PROVIDER = {"tv": "tvmaze", "film": "wikipedia", "album": "itunes", "game": "steam"}
 CACHED_FIELDS = ("summary", "genres", "rating", "runtime", "year", "artist", "tagline", "seasons")
+
+
+def source_id(entry):
+    """The source a list entry names. "tmdb@2" is TMDB with its second key."""
+    return entry.split("@", 1)[0]
+
+
+def normalise_entry(entry):
+    """A list entry with its credential slot spelled out.
+
+    "tmdb" and "tmdb@1" are the same first TMDB key; a source that takes no
+    credential never carries a slot at all. Doing this once, on the way in,
+    is what lets everything below look a credential up by the entry itself.
+    """
+    name = source_id(entry)
+    if not CREDENTIAL_FIELDS.get(name):
+        return name
+    return entry if "@" in entry else f"{name}@1"
+
+
+# (kind, source) -> the call that asks it. One table rather than one built per
+# item: enrich runs once per title, and a library is thousands of them.
+_LOOKUPS = {
+    ("tv", "tvmaze"): lambda svc, item, entry: svc._tvmaze(item),
+    ("tv", "tmdb"): lambda svc, item, entry: svc._tmdb(item, "tv", entry),
+    ("tv", "wikipedia"): lambda svc, item, entry: svc._wikipedia(item, "tv"),
+    ("film", "tmdb"): lambda svc, item, entry: svc._tmdb(item, "movie", entry),
+    ("film", "wikipedia"): lambda svc, item, entry: svc._wikipedia(item, "film"),
+    ("album", "itunes"): lambda svc, item, entry: svc._itunes(item, "album"),
+    ("game", "steam"): lambda svc, item, entry: svc._steam(item),
+    ("game", "igdb"): lambda svc, item, entry: svc._igdb(item, entry),
+}
 
 for _d in (POSTER_CACHE_DIR, BACKDROP_CACHE_DIR, METADATA_CACHE_DIR, THUMB_CACHE_DIR):
     os.makedirs(_d, exist_ok=True)
@@ -178,14 +234,15 @@ def fit_image(src, box, dest=None):
     try:
         if kind == "pil":
             from PIL import ImageOps
-            img = ImageOps.exif_transpose(module.open(src))
-            # Recomputed: a photo tagged as rotated comes out of that with its
-            # width and height the other way round.
-            fit = min(1.0, box[0] / img.width, box[1] / img.height)
-            if fit < 1.0:
-                img = img.resize(
-                    (max(1, round(img.width * fit)), max(1, round(img.height * fit))),
-                    module.LANCZOS)
+            img = module.open(src)
+            # JPEG can decode straight to a smaller size instead of paying for
+            # the full original and then throwing most of it away; the box is
+            # squared so a 90-degree EXIF rotation still decodes the long side
+            # at full size. Must come before exif_transpose, which loads the
+            # image and makes draft() a no-op from then on.
+            img.draft("RGB", (max(box), max(box)))
+            img = ImageOps.exif_transpose(img)
+            img.thumbnail(box, module.LANCZOS)  # keeps aspect, never enlarges
             if img.mode in ("RGBA", "LA") or "transparency" in img.info:
                 out = _png_name(out, dest)
                 img.save(tmp, "PNG")
@@ -401,48 +458,82 @@ class MetadataService:
     piece of shared state below it — the record index, the IGDB token, the
     one-shot warning — is taken under `_lock`."""
 
-    def __init__(self, online=True, providers=None, tmdb_key=None):
+    def __init__(self, online=True, sources=None, credentials=None, offline_kinds=()):
         self.online = online
-        self.providers = dict(DEFAULT_PROVIDER)
-        for kind, name in (providers or {}).items():
-            if name in PROVIDERS.get(kind, ()):
-                self.providers[kind] = name
-        self.tmdb_key = (tmdb_key or os.environ.get("GNOMEFLIX_TMDB_KEY") or "").strip()
-        self.igdb_id = (os.environ.get("GNOMEFLIX_IGDB_CLIENT_ID") or "").strip()
-        self.igdb_secret = (os.environ.get("GNOMEFLIX_IGDB_CLIENT_SECRET") or "").strip()
-        self._igdb_token = None       # (value, expiry); minted once per run
-        self._warned_no_key = False
+        # Sections whose own switch is off. They still get whatever is already
+        # cached; they just never reach for the network.
+        self._offline_kinds = set(offline_kinds)
+        self.sources = {
+            kind: tuple(normalise_entry(e) for e in entries)
+            for kind, entries in DEFAULT_SOURCES.items()
+        }
+        for kind, entries in (sources or {}).items():
+            if kind in self.sources and entries is not None:
+                self.sources[kind] = tuple(
+                    normalise_entry(e) for e in entries
+                    if source_id(e) in PROVIDERS.get(kind, ()))
+        self._credentials = dict(credentials or {})
+        # Slot 1 of each service falls back to the environment, which is how a
+        # standalone run (no preferences to read) is given a key.
+        self._env_credentials = {
+            "tmdb": (os.environ.get("MEDIA_LIBRARIES_TMDB_KEY") or "").strip(),
+            "igdb": FIELD_SEP.join((
+                (os.environ.get("MEDIA_LIBRARIES_IGDB_CLIENT_ID") or "").strip(),
+                (os.environ.get("MEDIA_LIBRARIES_IGDB_CLIENT_SECRET") or "").strip(),
+            )),
+        }
+        self._igdb_tokens = {}        # slot -> (value, expiry); one per credential per run
+        self._warned = set()          # source names already complained about
         self._lock = threading.Lock()
         self._igdb_lock = threading.Lock()
         self._index = self._load_index()
         self._unflushed = 0
 
-    def provider_for(self, kind):
-        """The provider that will actually run: TMDB needs a key to be usable."""
-        name = self.providers.get(kind, DEFAULT_PROVIDER.get(kind))
-        if name == "tmdb" and not self.tmdb_key:
-            with self._lock:
-                warn = not self._warned_no_key
-                self._warned_no_key = True
-            if warn:
-                print("TMDB selected but no API key is set; using Wikipedia instead.")
-            return "wikipedia"
-        return name
+    # -- sources ---------------------------------------------------------
+    def credential(self, entry):
+        """One source entry's credential, split into its fields."""
+        raw = self._credentials.get(entry)
+        if not raw and entry.endswith("@1"):
+            raw = self._env_credentials.get(source_id(entry))
+        fields = CREDENTIAL_FIELDS.get(source_id(entry), 0)
+        parts = (raw or "").split(FIELD_SEP)
+        return [(parts[i] if i < len(parts) else "").strip() for i in range(fields)]
 
-    def provider_for_item(self, item):
-        """The provider for one item, or None when nothing can answer for it.
+    def _usable(self, entry):
+        """Whether this entry can run at all. A source whose credential is
+        missing skips itself, which is what lets TMDB sit unkeyed in every
+        default list rather than being an error."""
+        if not CREDENTIAL_FIELDS.get(source_id(entry)):
+            return True
+        if all(self.credential(entry)):
+            return True
+        name = source_id(entry)
+        with self._lock:
+            warn = name not in self._warned
+            self._warned.add(name)
+        if warn:
+            print(f"{name}: no credential set, skipping it wherever it is listed.")
+        return False
 
-        Every other kind is decided by a preference. A game is decided by the
-        item: a Steam app has a store record and an artwork CDN of its own, and
-        a PS2 disc image has neither — IGDB is the only source that knows it,
-        and only when the Twitch credentials are set.
+    def sources_for(self, item):
+        """The sources that may answer for one item, in the order they are tried.
+
+        A game is the one kind decided by the item rather than by the order: a
+        Steam app has a store record and an artwork CDN of its own, and a PS2
+        disc image has neither, so only IGDB can know it. The list still says
+        which IGDB credential is reached for first.
         """
         kind = item["kind"]
-        if kind != "game":
-            return self.provider_for(kind)
-        if item.get("platform") == "steam":
-            return "steam"
-        return "igdb" if (self.igdb_id and self.igdb_secret) else None
+        entries = self.sources.get(kind, ())
+        if kind == "game":
+            want = "steam" if item.get("platform") == "steam" else "igdb"
+            entries = [e for e in entries if source_id(e) == want]
+        return [e for e in entries if self._usable(e)]
+
+    def online_for(self, kind):
+        """Whether this kind may go online at all: the run's --offline flag and
+        then the section's own switch."""
+        return self.online and kind not in self._offline_kinds
 
     # -- cache helpers ---------------------------------------------------
     def _load_index(self):
@@ -533,50 +624,60 @@ class MetadataService:
 
     # -- public ----------------------------------------------------------
     def enrich(self, item):
-        """Fill summary/genres/rating/artwork in place, from cache or online."""
+        """Fill summary/genres/rating/artwork in place, from cache or online.
+
+        The section's sources are tried in order until one comes back with the
+        artwork. A source that knows the facts but has no poster leaves the
+        next one to try for one — it has already written what it knew into the
+        item, and whatever answers last overwrites it — so a list is worth
+        arranging richest-first.
+        """
         kind = item["kind"]
-        provider = self.provider_for_item(item)
-        if provider is None:
+        entries = self.sources_for(item)
+        if not entries:
             return
         key, poster_file, backdrop_file = self._paths(item)
-        if self._apply_cached(item, provider, key, poster_file, backdrop_file):
-            return
-        if not self.online:
-            return
-
-        lookup = {
-            ("tv", "tvmaze"): self._tvmaze,
-            ("tv", "tmdb"): lambda it: self._tmdb(it, "tv"),
-            ("tv", "wikipedia"): lambda it: self._wikipedia(it, "tv"),
-            ("film", "tmdb"): lambda it: self._tmdb(it, "movie"),
-            ("film", "wikipedia"): lambda it: self._wikipedia(it, "film"),
-            ("album", "itunes"): lambda it: self._itunes(it, "album"),
-            ("game", "steam"): self._steam,
-            ("game", "igdb"): self._igdb,
-        }.get((kind, provider))
-        if lookup is None:
+        # A cached record was written by one source; any entry naming that
+        # source is still the answer, wherever it now sits in the order.
+        for entry in entries:
+            if self._apply_cached(item, source_id(entry), key, poster_file, backdrop_file):
+                return
+        if not self.online_for(kind):
             return
 
-        try:
-            art = lookup(item) or {}
-        except Exception as e:  # network errors, odd JSON, anything
-            print(f"{provider} lookup failed for '{item['title']}': {e}")
-            return
-        if isinstance(art, str):  # providers that only know a poster
-            art = {"poster": art}
-
-        if art.get("poster") and not item.get("poster_path"):
+        answered = None
+        for entry in entries:
+            name = source_id(entry)
+            lookup = _LOOKUPS.get((kind, name))
+            if lookup is None:
+                continue
             try:
-                item["poster_path"] = _download(art["poster"], poster_file, POSTER_BOX)
-            except Exception as e:
-                print(f"Artwork download failed for '{item['title']}': {e}")
-        if art.get("backdrop"):
-            try:
-                item["backdrop_path"] = _download(art["backdrop"], backdrop_file, BACKDROP_BOX)
-            except Exception as e:
-                print(f"Backdrop download failed for '{item['title']}': {e}")
-        item["provider"] = provider
-        self._save(item, provider, key)
+                art = lookup(self, item, entry)
+            except Exception as e:  # network errors, odd JSON, anything
+                print(f"{name} lookup failed for '{item['title']}': {e}")
+                continue
+            if not art:  # nothing found here; the next source gets its turn
+                continue
+            if isinstance(art, str):  # sources that only know a poster
+                art = {"poster": art}
+
+            answered = name
+            if art.get("poster") and not item.get("poster_path"):
+                try:
+                    item["poster_path"] = _download(art["poster"], poster_file, POSTER_BOX)
+                except Exception as e:
+                    print(f"Artwork download failed for '{item['title']}': {e}")
+            if art.get("backdrop") and not item.get("backdrop_path"):
+                try:
+                    item["backdrop_path"] = _download(art["backdrop"], backdrop_file, BACKDROP_BOX)
+                except Exception as e:
+                    print(f"Backdrop download failed for '{item['title']}': {e}")
+            if item.get("poster_path"):
+                break
+
+        if answered:
+            item["provider"] = answered
+            self._save(item, answered, key)
 
     # -- providers -------------------------------------------------------
     def _tvmaze(self, show):
@@ -594,11 +695,13 @@ class MetadataService:
         image = data.get("image") or {}
         return image.get("original") or image.get("medium")
 
-    def _tmdb(self, item, media):
+    def _tmdb(self, item, media, entry):
         """Poster, backdrop, synopsis, tagline, genres, runtime and rating from
-        The Movie Database. `media` is "movie" or "tv"."""
+        The Movie Database. `media` is "movie" or "tv"; `entry` names the key
+        slot, so a list holding "tmdb@1" and "tmdb@2" asks twice with two keys."""
+        api_key = self.credential(entry)[0]
         query = clean_query(item["title"], "film" if media == "movie" else "tv")
-        params = {"api_key": self.tmdb_key, "query": query, "include_adult": "false"}
+        params = {"api_key": api_key, "query": query, "include_adult": "false"}
         year = item.get("year")
         if year:
             params["year" if media == "movie" else "first_air_date_year"] = str(year)
@@ -616,7 +719,7 @@ class MetadataService:
             return None
 
         best = results[0]
-        details = _get_json(f"{TMDB_API}/{media}/{best['id']}?api_key={self.tmdb_key}")
+        details = _get_json(f"{TMDB_API}/{media}/{best['id']}?api_key={api_key}")
         item["summary"] = details.get("overview") or best.get("overview") or None
         item["tagline"] = details.get("tagline") or None
         item["genres"] = [g["name"] for g in details.get("genres") or [] if g.get("name")]
@@ -754,24 +857,26 @@ class MetadataService:
             art["backdrop"] = f"{STEAM_CDN}/{appid}/library_hero.jpg"
         return art
 
-    def _igdb_access_token(self):
-        """The Twitch app access token, minted once per run.
+    def _igdb_access_token(self, entry):
+        """The Twitch app access token for one credential slot, minted once per run.
 
-        Tokens are good for weeks, so one scan needs exactly one. The lock is
-        held across the exchange as well as the check, so a pool of workers all
-        reaching PS2 games at once still mints a single token between them.
-        None on any failure — an unreachable IGDB must leave the PS2 games with
-        the drawn placeholder, not stop the scan.
+        Tokens are good for weeks, so one scan needs exactly one per slot. The
+        lock is held across the exchange as well as the check, so a pool of
+        workers all reaching PS2 games at once still mints a single token
+        between them. None on any failure — an unreachable IGDB must leave the
+        PS2 games with the drawn placeholder, not stop the scan.
         """
         with self._igdb_lock:
-            return self._igdb_access_token_locked()
+            return self._igdb_access_token_locked(entry)
 
-    def _igdb_access_token_locked(self):
-        if self._igdb_token and time.time() < self._igdb_token[1]:
-            return self._igdb_token[0]
+    def _igdb_access_token_locked(self, entry):
+        held = self._igdb_tokens.get(entry)
+        if held and time.time() < held[1]:
+            return held[0]
+        client_id, client_secret = self.credential(entry)
         params = urllib.parse.urlencode({
-            "client_id": self.igdb_id,
-            "client_secret": self.igdb_secret,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "grant_type": "client_credentials",
         })
         try:
@@ -783,17 +888,18 @@ class MetadataService:
         if not value:
             return None
         # A minute of headroom, so a token cannot expire mid-request.
-        self._igdb_token = (value, time.time() + max(0, int(data.get("expires_in") or 3600) - 60))
+        self._igdb_tokens[entry] = (
+            value, time.time() + max(0, int(data.get("expires_in") or 3600) - 60))
         return value
 
-    def _igdb(self, item):
+    def _igdb(self, item, entry):
         """A PS2 game from IGDB: cover, synopsis, genres, rating and year.
 
         IGDB speaks Apicalypse — one POST body, one round trip for the whole
         record. The search is pinned to the PlayStation 2 platform so a
         remake on another console cannot outrank the disc actually on disk.
         """
-        token = self._igdb_access_token()
+        token = self._igdb_access_token(entry)
         if not token:
             return None
         query = clean_query(item["title"], "game").replace('"', "")
@@ -806,7 +912,11 @@ class MetadataService:
         raw = _fetch(
             f"{IGDB_API}/games", 10,
             data=body.encode("utf-8"),
-            headers={"Client-ID": self.igdb_id, "Authorization": f"Bearer {token}", "Accept": "application/json"},
+            headers={
+                "Client-ID": self.credential(entry)[0],
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
         )
         results = json.loads(raw.decode("utf-8")) or []
         if not results:

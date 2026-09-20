@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="gnome-shell-extensions">
+    <schema path="/org/gnome/shell/extensions/media-libraries/" id="org.gnome.shell.extensions.media-libraries">
+
+        <!-- Media sections. An empty path means the XDG user folder (Music,
+             Pictures). TV shows and films have no default: the Videos folder
+             cannot be both, so they stay off until pointed at a folder. -->
+        <key name="tv-shows-enabled" type="b">
+            <default>true</default>
+            <summary>Show TV shows</summary>
+        </key>
+        <key name="tv-shows-path" type="s">
+            <default>""</default>
+            <summary>TV shows folder</summary>
+            <description>One subfolder per show, optionally split into Season N subfolders.</description>
+        </key>
+
+        <key name="tv-shows-sources" type="as">
+            <default>['tvmaze','tmdb@1','wikipedia']</default>
+            <summary>TV show sources, in order</summary>
+            <description>Tried in order until one answers. An entry is a provider, optionally with a credential slot ("tmdb@2"); a slot with no credential is skipped.</description>
+        </key>
+        <key name="tv-shows-online" type="b">
+            <default>true</default>
+            <summary>Fetch artwork and descriptions online for TV shows</summary>
+            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+
+        <key name="films-enabled" type="b">
+            <default>true</default>
+            <summary>Show films</summary>
+        </key>
+        <key name="films-path" type="s">
+            <default>""</default>
+            <summary>Films folder</summary>
+            <description>One subfolder or file per film, named "Title (Year)".</description>
+        </key>
+
+        <key name="films-sources" type="as">
+            <default>['tmdb@1','wikipedia']</default>
+            <summary>Film sources, in order</summary>
+            <description>Tried in order until one answers. TMDB with no key set is skipped, which leaves Wikipedia.</description>
+        </key>
+        <key name="films-online" type="b">
+            <default>true</default>
+            <summary>Fetch artwork and descriptions online for films</summary>
+            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+
+        <key name="music-enabled" type="b">
+            <default>true</default>
+            <summary>Show music</summary>
+        </key>
+        <key name="music-path" type="s">
+            <default>""</default>
+            <summary>Music folder</summary>
+            <description>Album folders, optionally grouped under artist folders.</description>
+        </key>
+
+        <key name="music-sources" type="as">
+            <default>['itunes']</default>
+            <summary>Album sources, in order</summary>
+            <description>Album art comes from the iTunes Search API, which needs no key.</description>
+        </key>
+        <key name="music-online" type="b">
+            <default>true</default>
+            <summary>Fetch artwork and descriptions online for music</summary>
+            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+
+        <key name="photos-enabled" type="b">
+            <default>true</default>
+            <summary>Show photos</summary>
+        </key>
+        <key name="photos-path" type="s">
+            <default>""</default>
+            <summary>Photos folder</summary>
+            <description>One subfolder per album.</description>
+        </key>
+
+        <key name="photos-sources" type="as">
+            <default>[]</default>
+            <summary>Photo sources</summary>
+            <description>Empty, and stays empty: thumbnails are generated locally and photos never leave this computer.</description>
+        </key>
+        <key name="photos-online" type="b">
+            <default>true</default>
+            <summary>Fetch artwork and descriptions online for photos</summary>
+            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+
+        <!-- Games are not a folder of media: both paths only override the
+             auto-detection of Steam's library root and PCSX2's config folder. -->
+        <key name="games-enabled" type="b">
+            <default>true</default>
+            <summary>Show games</summary>
+        </key>
+        <key name="steam-path" type="s">
+            <default>""</default>
+            <summary>Steam library root</summary>
+            <description>The folder holding steamapps/. Empty auto-detects ~/.steam/steam, ~/.local/share/Steam and the flatpak install; extra libraries come from libraryfolders.vdf either way.</description>
+        </key>
+        <key name="pcsx2-path" type="s">
+            <default>""</default>
+            <summary>PCSX2 configuration folder</summary>
+            <description>The folder holding PCSX2.ini. Empty auto-detects ~/.config/PCSX2 and the flatpak install. Game folders and covers are read from the ini itself.</description>
+        </key>
+
+        <key name="games-sources" type="as">
+            <default>['steam','igdb@1']</default>
+            <summary>Game sources, in order</summary>
+            <description>A game’s source follows its platform rather than this order: Steam apps use Steam, PS2 discs use IGDB. The order decides which IGDB credential slot is tried first.</description>
+        </key>
+        <key name="games-online" type="b">
+            <default>true</default>
+            <summary>Fetch artwork and descriptions online for games</summary>
+            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+
+        <!-- Credentials, shared by every section that names a slot.
+             A slot id is "<service>@<n>": the same slot on two pages is the
+             same key, so the TMDB key TV shows use is the one films use, and a
+             second slot ("tmdb@2") is a second key to fall back to. A service
+             that takes more than one field (IGDB's client id and secret) joins
+             them with a tab, in the order its fields are declared in prefs.js.
+             Stored in plain text in dconf, like every other GSettings value. -->
+        <key name="credentials" type="a{ss}">
+            <default>{}</default>
+            <summary>API credentials by slot</summary>
+            <description>Slot id ("tmdb@1", "igdb@2") to credential. Multi-field credentials are tab-separated. An empty or missing credential makes the sources that name it skip themselves.</description>
+        </key>
+
+        <!-- Where each thing opens. Two independent choices out of one
+             vocabulary: the same four words mean the same four places on
+             both. Neither reads the other. -->
+        <key name="library-opens-in" type="s">
+            <choices>
+                <choice value="desktop"/>
+                <choice value="workspaces"/>
+                <choice value="menu"/>
+                <choice value="modal"/>
+            </choices>
+            <default>"workspaces"</default>
+            <summary>Where the library opens</summary>
+            <description>Where a section's grid is drawn. "desktop" and "workspaces" both draw it on the wallpaper, under a home menu of launchers: "desktop" keeps every section on the one workspace, "workspaces" gives each section it opens a workspace of its own and slides to it. "menu" puts a grid per section in the overview, beside the applications, opened from the buttons next to Show Apps. "modal" pops one up in the folder's panel over the desktop, from the same buttons, closed with Escape, a click away, or the button again. Only one is ever built. Where a picked item opens is detail-opens-in, which is read independently of this.</description>
+        </key>
+        <key name="detail-opens-in" type="s">
+            <choices>
+                <choice value="desktop"/>
+                <choice value="workspaces"/>
+                <choice value="menu"/>
+                <choice value="modal"/>
+            </choices>
+            <default>"desktop"</default>
+            <summary>Where a picked item opens</summary>
+            <description>Where the detail pane of a picked item is drawn. "desktop" puts it on the wallpaper of the workspace the pick was made on — in place of the grid, when the library is drawn there too. "workspaces" puts it on a workspace of its own and slides to it. "menu" pops it up the way the shell opens an app folder, zooming out of the tile, over whatever the pick was made on, and it goes when that tile does. "modal" is the same panel hosted over the desktop always, outliving the overview and a change of workspace until Escape or a click away closes it.</description>
+        </key>
+
+        <!-- Desktop placement -->
+        <key name="workspace-index" type="i">
+            <default>0</default>
+            <summary>Workspace index</summary>
+            <description>0-indexed workspace that carries the home menu, when the library opens in "desktop" or "workspaces".</description>
+        </key>
+
+        <!-- Appearance: one set of style settings, shared by all three views -->
+        <key name="columns" type="i">
+            <default>6</default>
+            <summary>Covers per row</summary>
+            <description>Covers per row. Fewer means larger covers. The count is capped by what fits the space the grid is drawn in — the overview's grid slot is the smallest — so a narrow space shows fewer.</description>
+        </key>
+        <key name="corner-radius" type="i">
+            <range min="0" max="40"/>
+            <default>18</default>
+            <summary>Corner radius</summary>
+            <description>How rounded artwork, tiles and the detail pane are, in pixels. 0 is square. The related radii (hero, thumbnails, rows, pane) scale with it.</description>
+        </key>
+        <key name="detail-size" type="i">
+            <range min="50" max="100"/>
+            <default>100</default>
+            <summary>Detail pop-up size</summary>
+            <description>How much of the room available the pop-up detail panel fills, as a percentage. Used when items open in a pop-up (detail-opens-in "menu" or "modal").</description>
+        </key>
+
+        <!-- Playback -->
+        <key name="player-command" type="s">
+            <default>""</default>
+            <summary>Video player command</summary>
+            <description>Command to open videos with. Empty uses the system default application.</description>
+        </key>
+    </schema>
+</schemalist>

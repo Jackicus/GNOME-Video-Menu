@@ -1,4 +1,4 @@
-// Gnomeflix in the shell's own pictures of a workspace: the Activities
+// Media Libraries in the shell's own pictures of a workspace: the Activities
 // overview, and the slide between workspaces.
 //
 // Neither shows the desktop background group: every workspace
@@ -69,7 +69,10 @@ class PreviewHost extends Clutter.Actor {
 
 export class OverviewPreview {
     // `placeForWorkspace` names what a workspace shows (or null when it is not
-    // one of ours) and `sourceFor` hands over the live actor showing that.
+    // one of ours) and `sourceFor` hands over the live actor showing that. It
+    // is handed the Meta.Workspace itself: `index()` on a workspace the shell
+    // has already removed — the one a closing section is sliding off — is a
+    // failed assertion, and both of the pictures below can outlive one.
     constructor({placeForWorkspace, sourceFor, bounds}) {
         this._placeForWorkspace = placeForWorkspace;
         this._sourceFor = sourceFor;
@@ -118,7 +121,7 @@ export class OverviewPreview {
         const monitor = Main.layoutManager.primaryMonitor;
         const strip = switchData.monitors?.find(m => m._monitor?.index === monitor?.index);
         for (const group of strip?._workspaceGroups ?? []) {
-            const place = this._placeForWorkspace(group.workspace?.index());
+            const place = this._placeForWorkspace(group.workspace);
             const source = place ? this._sourceFor(place) : null;
             // Over the wallpaper and under the desktop's own windows.
             const wallpaper = group._background?.get_first_child();
@@ -144,13 +147,12 @@ export class OverviewPreview {
         for (const workspace of this._workspacePreviews()) {
             const background = workspace._background;
             const group = background?._backgroundGroup;
-            // Gnomeflix only ever draws on the primary monitor, so the other
+            // Media Libraries only ever draws on the primary monitor, so the other
             // monitors' previews are left as they are.
             if (!group || background._monitorIndex !== Main.layoutManager.primaryIndex)
                 continue;
 
-            const index = workspace.metaWorkspace?.index?.();
-            const place = this._placeForWorkspace(index);
+            const place = this._placeForWorkspace(workspace.metaWorkspace);
             const source = place ? this._sourceFor(place) : null;
             if (!source)
                 continue;
@@ -160,7 +162,7 @@ export class OverviewPreview {
             // once into a texture and that is what the overview's animation
             // scales, rather than every tile of the page on every frame.
             const host = new PreviewHost({
-                name: `GnomeflixPreview:${place}`,
+                name: `MediaLibrariesPreview:${place}`,
                 x_align: Clutter.ActorAlign.FILL,
                 y_align: Clutter.ActorAlign.FILL,
                 x_expand: true,
@@ -178,7 +180,7 @@ export class OverviewPreview {
             // at thumbnail size; its contents are laid out in stage
             // coordinates, as the window clones beside this one are.
             const thumbnails = Main.overview._overview?.controls?._thumbnailsBox?._thumbnails ?? [];
-            const contents = thumbnails[index]?._contents;
+            const contents = thumbnails.find(t => t.metaWorkspace === workspace.metaWorkspace)?._contents;
             if (contents) {
                 const clone = this._cloneOf(source, this._bounds.x, this._bounds.y);
                 contents.add_child(clone);

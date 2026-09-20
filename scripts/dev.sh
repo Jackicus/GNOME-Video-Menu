@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Gnomeflix development helper.
+# Media Libraries development helper.
 #
 #   ./scripts/dev.sh link       symlink src/ into the extensions dir (dev mode)
 #   ./scripts/dev.sh install    copy src/ into the extensions dir (real install)
@@ -12,13 +12,17 @@
 #   ./scripts/dev.sh prune      remove superseded builds, keeping the current one
 #   ./scripts/dev.sh uninstall  remove the extension (and stale older builds)
 #   ./scripts/dev.sh status     show what is currently installed and enabled
+#   ./scripts/dev.sh stalls [LOG]  watch for desktop freezes: shell main-loop
+#                                  stalls, processes stuck in the kernel and
+#                                  automount triggers, with timestamps
+#   ./scripts/dev.sh clean      remove compiled schemas, dist/ and unshipped files
 #
 set -euo pipefail
 
-UUID="gnomeflix@jackt"
-LEGACY_UUIDS=("media-workspace-desktop@jackt")
-LEGACY_CACHE="$HOME/.cache/gnome-media-center"
-CACHE_DIR="$HOME/.cache/gnomeflix"
+UUID="media-libraries@jackt"
+# Append to this on each rename so `prune` sweeps up every superseded build.
+LEGACY_UUIDS=("gnomeflix@jackt" "media-workspace-desktop@jackt")
+CACHE_DIR="$HOME/.cache/media-libraries"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_DIR="$REPO_DIR/src"
@@ -40,16 +44,6 @@ compile_schemas() {
     glib-compile-schemas "$SRC_DIR/schemas"
 }
 
-# The cache dir was named after the extension's former name. Move it across once
-# so previously downloaded posters and metadata are not orphaned.
-migrate_cache() {
-    if [[ -d "$LEGACY_CACHE" && ! -d "$CACHE_DIR" ]]; then
-        info "Migrating cache $LEGACY_CACHE → $CACHE_DIR"
-        mv "$LEGACY_CACHE" "$CACHE_DIR"
-    fi
-    mkdir -p "$CACHE_DIR"
-}
-
 remove_installed() {
     # -e misses a symlink whose target is gone, so test -L as well.
     if [[ -e "$EXT_DIR" || -L "$EXT_DIR" ]]; then
@@ -61,9 +55,24 @@ is_enabled() {
     gnome-extensions list --enabled 2>/dev/null | grep -qx "$UUID"
 }
 
+# Bytecode Python leaves behind. Nothing here is checked in, so it is the only
+# part of the strip that is safe to run over the working tree itself.
+strip_pycache() {
+    find "$1" -name '__pycache__' -type d -prune -exec rm -rf {} +
+    find "$1" -name '*.pyc' -type f -delete
+}
+
+# Drop what the extension directory ships from but a checkout doesn't need:
+# bytecode caches and the per-directory CLAUDE.md notes. Only ever called on a
+# COPY of src/ — the plain-cp install fallback and the pack staging copy — since
+# those CLAUDE.md files are checked in and deleting them from src/ is a loss.
+strip_unshipped() {
+    strip_pycache "$1"
+    find "$1" -name 'CLAUDE.md' -type f -delete
+}
+
 cmd_link() {
     compile_schemas
-    migrate_cache
     remove_installed
     mkdir -p "$EXT_ROOT"
     ln -s "$SRC_DIR" "$EXT_DIR"
@@ -74,7 +83,6 @@ cmd_link() {
 
 cmd_install() {
     compile_schemas
-    migrate_cache
     remove_installed
     mkdir -p "$EXT_DIR"
     if command -v rsync >/dev/null 2>&1; then
@@ -83,8 +91,7 @@ cmd_install() {
             "$SRC_DIR"/ "$EXT_DIR"/
     else
         cp -r "$SRC_DIR"/. "$EXT_DIR"/
-        find "$EXT_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
-        find "$EXT_DIR" -name 'CLAUDE.md' -type f -delete
+        strip_unshipped "$EXT_DIR"
     fi
     ok "Installed to $EXT_DIR"
     enable_extension
@@ -141,12 +148,12 @@ cmd_reload() {
 cmd_logs() {
     require journalctl
     if [[ -n "${1:-}" ]]; then
-        info "Gnomeflix log output since '$1':"
+        info "Media Libraries log output since '$1':"
         journalctl -o cat /usr/bin/gnome-shell --since "$1" 2>/dev/null \
-            | grep -i gnomeflix || info "(nothing logged in that window)"
+            | grep -iE 'media.libraries' || info "(nothing logged in that window)"
     else
         info "Following GNOME Shell logs (Ctrl+C to stop)..."
-        journalctl -f -o cat /usr/bin/gnome-shell | grep --line-buffered -i gnomeflix
+        journalctl -f -o cat /usr/bin/gnome-shell | grep --line-buffered -iE 'media.libraries'
     fi
 }
 
@@ -161,8 +168,7 @@ cmd_pack() {
     local stage
     stage=$(mktemp -d)
     cp -r "$SRC_DIR"/. "$stage"/
-    find "$stage" -name '__pycache__' -type d -prune -exec rm -rf {} +
-    find "$stage" -name 'CLAUDE.md' -type f -delete
+    strip_unshipped "$stage"
     ( cd "$stage" && gnome-extensions pack --force \
         --extra-source=lib \
         --extra-source=backend \
@@ -178,13 +184,10 @@ cmd_pack() {
 cmd_scan() {
     require python3
     compile_schemas
-    migrate_cache
-    local get="gsettings --schemadir $SRC_DIR/schemas get org.gnome.shell.extensions.gnomeflix"
-    # Keys travel in the environment so they never appear in ps output.
-    GNOMEFLIX_TMDB_KEY="$($get tmdb-api-key | tr -d "'")" \
-    GNOMEFLIX_IGDB_CLIENT_ID="$($get igdb-client-id | tr -d "'")" \
-    GNOMEFLIX_IGDB_CLIENT_SECRET="$($get igdb-client-secret | tr -d "'")" \
-        python3 "$SRC_DIR/backend/scan_library.py" --from-settings "$@"
+    # The API keys are read straight out of the preferences by the scanner,
+    # along with everything else --from-settings covers, so nothing has to be
+    # handed to it here and no key ever reaches a command line.
+    python3 "$SRC_DIR/backend/scan_library.py" --from-settings "$@"
 }
 
 # Remove superseded builds of this extension, leaving the current one alone.
@@ -206,6 +209,20 @@ cmd_uninstall() {
     remove_installed
     ok "Removed $EXT_DIR"
     cmd_prune
+}
+
+cmd_clean() {
+    rm -f "$SRC_DIR/schemas/gschemas.compiled"
+    rm -rf "$REPO_DIR/dist"
+    strip_pycache "$SRC_DIR"
+    ok "Cleaned compiled schemas, dist/ and bytecode caches under src/."
+}
+
+# A freeze is over by the time anyone looks; this leaves a log of what stalled.
+cmd_stalls() {
+    require python3
+    info "Watching for freezes (Ctrl+C to stop); reproduce one, then read the log."
+    python3 "$REPO_DIR/scripts/stallwatch.py" "$@"
 }
 
 cmd_status() {
@@ -254,6 +271,8 @@ case "${1:-}" in
     prune)      cmd_prune ;;
     uninstall)  cmd_uninstall ;;
     status)     cmd_status ;;
+    stalls)     shift; cmd_stalls "$@" ;;
+    clean)      cmd_clean ;;
     ""|-h|--help|help) usage ;;
     *)          die "Unknown command '$1'. Run './scripts/dev.sh help'." ;;
 esac

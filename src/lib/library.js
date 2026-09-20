@@ -1,4 +1,4 @@
-// Reads ~/.cache/gnomeflix/library.json (written by backend/scan_library.py)
+// Reads ~/.cache/media-libraries/library.json (written by backend/scan_library.py)
 // and normalises every media type into one shape the views can render:
 //
 //   item = {
@@ -46,14 +46,6 @@ export const SECTIONS = [
         emptyHint: 'Add a folder of photo albums in Settings.',
     },
     {
-        key: 'documents',
-        prefix: 'documents',
-        title: 'Documents',
-        icon: 'x-office-document-symbolic',
-        aspect: 1.3,
-        emptyHint: 'Add a folder of documents in Settings.',
-    },
-    {
         key: 'games',
         prefix: 'games',
         title: 'Games',
@@ -67,16 +59,15 @@ export function sectionByKey(key) {
     return SECTIONS.find(s => s.key === key) ?? SECTIONS[0];
 }
 
-export function cacheDir() {
-    return GLib.build_filenamev([GLib.get_user_cache_dir(), 'gnomeflix']);
+function cacheDir() {
+    return GLib.build_filenamev([GLib.get_user_cache_dir(), 'media-libraries']);
 }
 
 export function libraryPath() {
     return GLib.build_filenamev([cacheDir(), 'library.json']);
 }
 
-// "141 in your library". The header and its static twin in the overview both
-// say this, so they say it from one place.
+// "141 in your library", said by the section header.
 export function libraryCountLabel(count) {
     return count ? `${count} in your library` : 'Nothing indexed yet';
 }
@@ -94,7 +85,7 @@ export function readSections() {
         const raw = JSON.parse(new TextDecoder('utf-8').decode(bytes));
         return {sections: raw?.sections ?? {}, generated: raw?.generated ?? null};
     } catch (e) {
-        console.error(`[Gnomeflix] Failed to read ${path}: ${e}`);
+        console.error(`[Media Libraries] Failed to read ${path}: ${e}`);
         return nothing;
     }
 }
@@ -191,7 +182,6 @@ function normalize(item, sectionKey, art) {
     case 'films': return normalizeFilm(item, base);
     case 'music': return normalizeAlbum(item, base);
     case 'photos': return normalizePhotoAlbum(item, base, art);
-    case 'documents': return normalizeDocuments(item, base);
     case 'games': return normalizeGame(item, base);
     default: return null;
     }
@@ -202,7 +192,7 @@ function normalize(item, sectionKey, art) {
 // ---------------------------------------------------------------------------
 
 // "Season 3" -> 3, null for named groups such as "Extras" or "OVA".
-export function seasonNumberOf(name) {
+function seasonNumberOf(name) {
     const m = String(name).match(/(\d+)/);
     return m ? parseInt(m[1], 10) : null;
 }
@@ -328,56 +318,38 @@ function normalizeAlbum(album, base) {
 // ---------------------------------------------------------------------------
 function normalizePhotoAlbum(album, base, art) {
     const photos = Array.isArray(album.photos) ? album.photos : [];
-    const entries = photos.map((p, i) => ({
-        index: i + 1,
-        title: p.title || p.filename,
-        subtitle: null,
-        path: p.path,
-        thumb: exists(p.thumb_path, art) ? p.thumb_path : null,
-        badges: [],
-        size: null,
-    }));
-    return {
+    const item = {
         ...base,
         layout: 'grid',
         countLabel: plural(photos.length, 'photo'),
-        groups: [{name: 'Photos', entries}],
         groupLabel: null,
         playPath: album.folder_path ?? null,
         playLabel: 'Open folder',
     };
-}
-
-// ---------------------------------------------------------------------------
-// Documents
-// ---------------------------------------------------------------------------
-const DOCUMENT_ICONS = {
-    pdf: 'x-office-document-symbolic',
-    odt: 'x-office-document-symbolic', doc: 'x-office-document-symbolic', docx: 'x-office-document-symbolic', rtf: 'x-office-document-symbolic',
-    ods: 'x-office-spreadsheet-symbolic', xls: 'x-office-spreadsheet-symbolic', xlsx: 'x-office-spreadsheet-symbolic', csv: 'x-office-spreadsheet-symbolic', tsv: 'x-office-spreadsheet-symbolic',
-    odp: 'x-office-presentation-symbolic', ppt: 'x-office-presentation-symbolic', pptx: 'x-office-presentation-symbolic',
-};
-
-function normalizeDocuments(collection, base) {
-    const docs = Array.isArray(collection.documents) ? collection.documents : [];
-    const entries = docs.map((d, i) => ({
-        index: i + 1,
-        title: d.title || d.filename,
-        subtitle: d.ext ? d.ext.toUpperCase() : null,
-        path: d.path,
-        icon: DOCUMENT_ICONS[d.ext] ?? 'text-x-generic-symbolic',
-        badges: [],
-        size: d.size_mb ? `${d.size_mb} MB` : null,
-    }));
-    const total = collection.document_count ?? docs.length;
-    return {
-        ...base,
-        countLabel: plural(total, 'document'),
-        groups: [{name: total > docs.length ? `Newest ${docs.length} of ${total}` : 'Files', entries}],
-        groupLabel: null,
-        playPath: collection.folder_path ?? null,
-        playLabel: 'Open folder',
-    };
+    // An album runs to thousands of photos and only the detail pane reads
+    // `groups`, after the pick, so building the entry list is deferred to
+    // the first read of it rather than paid by every album on every scan.
+    Object.defineProperty(item, 'groups', {
+        enumerable: true,
+        configurable: true,
+        get() {
+            const groups = [{
+                name: 'Photos',
+                entries: photos.map((p, i) => ({
+                    index: i + 1,
+                    title: p.title || p.filename,
+                    subtitle: null,
+                    path: p.path,
+                    thumb: exists(p.thumb_path, art) ? p.thumb_path : null,
+                    badges: [],
+                    size: null,
+                })),
+            }];
+            Object.defineProperty(this, 'groups', {value: groups, enumerable: true});
+            return groups;
+        },
+    });
+    return item;
 }
 
 // ---------------------------------------------------------------------------
@@ -446,60 +418,9 @@ function normalizeGame(game, base) {
         countLabel: played ?? platform,
         groups: [{name: 'Details', entries}],
         groupLabel: null,
-        // An argv array: openPath runs it as a command line rather than
-        // handing it to the default application.
+        // An argv array: the app runs it as a command line rather than
+        // handing it to the default application (openPath in app.js).
         playPath: launch,
         playLabel: 'Play',
     };
-}
-
-// ---------------------------------------------------------------------------
-// Opening things
-// ---------------------------------------------------------------------------
-
-// Open a file with the configured player, or the system default app. An
-// array is a command line to run as-is (a game launcher, an emulator).
-export function openPath(path, playerCommand = '') {
-    if (!path)
-        return;
-    if (Array.isArray(path)) {
-        try {
-            Gio.Subprocess.new(path, Gio.SubprocessFlags.NONE);
-        } catch (e) {
-            console.error(`[Gnomeflix] Could not run ${path.join(' ')}: ${e.message}`);
-        }
-        return;
-    }
-    // This runs in the compositor, and media often lives on a network share or
-    // an automount that has idled out: asked synchronously, the whole desktop
-    // would stand still for as long as the share takes to come back.
-    const failed = e => console.error(`[Gnomeflix] Could not open ${path}: ${e.message}`);
-    Gio.File.new_for_path(path).query_info_async(
-        'standard::type', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null,
-        (file, result) => {
-            let isDir = false;
-            try {
-                isDir = file.query_info_finish(result).get_file_type() === Gio.FileType.DIRECTORY;
-            } catch (e) {
-                // Not there: let the launch below say so.
-            }
-            try {
-                if (playerCommand && !isDir) {
-                    const [ok, argv] = GLib.shell_parse_argv(playerCommand);
-                    if (ok && argv.length) {
-                        Gio.Subprocess.new([...argv, path], Gio.SubprocessFlags.NONE);
-                        return;
-                    }
-                }
-                Gio.AppInfo.launch_default_for_uri_async(file.get_uri(), null, null, (_source, res) => {
-                    try {
-                        Gio.AppInfo.launch_default_for_uri_finish(res);
-                    } catch (e) {
-                        failed(e);
-                    }
-                });
-            } catch (e) {
-                failed(e);
-            }
-        });
 }
