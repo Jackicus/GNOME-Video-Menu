@@ -244,7 +244,10 @@ function normalizeShow(show, base) {
             return {
                 index: tag ? parseInt(tag[2], 10) : i + 1,
                 title: episodeTitle(ep.title || ep.filename || ''),
-                subtitle: tag ? `S${tag[1].padStart(2, '0')}E${tag[2].padStart(2, '0')}` : null,
+                // The row says which episode with its number, under the
+                // season's tab; the code is for the Play button alone.
+                subtitle: null,
+                code: tag ? `S${tag[1].padStart(2, '0')}E${tag[2].padStart(2, '0')}` : null,
                 path: ep.path,
                 badges: ep.has_subtitles ? ['SUB'] : [],
                 size: ep.size_mb ? `${ep.size_mb} MB` : null,
@@ -261,7 +264,7 @@ function normalizeShow(show, base) {
         groups,
         groupLabel: groups.length === 1 ? null : `${groups.length} seasons`,
         playPath: first?.path ?? null,
-        playLabel: first?.subtitle ? `Play ${first.subtitle}` : 'Play',
+        playLabel: first?.code ? `Play ${first.code}` : 'Play',
     };
 }
 
