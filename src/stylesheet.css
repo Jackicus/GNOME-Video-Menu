@@ -284,7 +284,15 @@
 
 .ml-row {
     border-radius: 18px;
-    padding: 8px 14px 8px 10px;
+    padding: 8px 14px 8px 8px;
+    /* One height for every row, and its minimum as much as its natural: a
+     * scrolling St.BoxLayout lays its children out over its *minimum*
+     * height, so rows left to size themselves came out squashed to their
+     * minimum in a long list and full-size in a short one. `height` alone
+     * sets only the natural; the index disc's height, which a two-line
+     * row's text fits inside. */
+    min-height: 36px;
+    height: 36px;
     transition-duration: 120ms;
     /* A button's bold would reach every label in the row, as it does not for
      * the popover items the theme resets the same way (%menuitem). */

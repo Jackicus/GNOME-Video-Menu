@@ -310,10 +310,16 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
     });
     const content = new St.BoxLayout({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
 
-    content.add_child(new St.Label({
-        text: String(index),
+    // A disc with the number centred in it. A label given the disc's size
+    // in CSS draws its text at the top, so the disc is a bin around it.
+    content.add_child(new St.Bin({
         style_class: 'ml-row-index',
         y_align: Clutter.ActorAlign.CENTER,
+        child: new St.Label({
+            text: String(index),
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+        }),
     }));
 
     const titleLabel = createLabel(title, 'ml-row-title', {x_expand: true, y_align: Clutter.ActorAlign.CENTER});
