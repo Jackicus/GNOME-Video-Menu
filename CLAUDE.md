@@ -361,7 +361,7 @@ up in that, rather than a blocking `file_test` per poster.
   row wherever a grid is drawn — the wallpaper, the overview's slot, the window
   panel — capped by what fits at `mediaGrid.js`'s `MIN_ART` in the box that view
   is given, so a narrow space simply shows fewer; `corner-radius` is above;
-  `detail-size` (50–100%) is how much of the work area a pop-up detail panel
+  `detail-size` (80–120%) is how much of the work area a pop-up detail panel
   fills, and reaches `panel.js` `_budget()` alone; `grid-align` is whether a
   part-full row is centred under the full ones, as the app grid has it, or
   hugs the leading edge (`mediaGrid.js` `setGridAlign`, read by the layout as

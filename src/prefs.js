@@ -340,7 +340,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             title: 'Detail pop-up size',
             subtitle: 'How much of the available room the pop-up fills, as a percentage',
         });
-        detailSizeRow.add_suffix(slider('detail-size', 50, 100));
+        detailSizeRow.add_suffix(slider('detail-size', 80, 120));
         appearance.add(detailSizeRow);
 
         const VIEWS = {

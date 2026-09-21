@@ -209,7 +209,7 @@
             <description>How rounded artwork, tiles and the detail pane are, in pixels. 0 is square. The related radii (hero, thumbnails, rows, pane) scale with it.</description>
         </key>
         <key name="detail-size" type="i">
-            <range min="50" max="100"/>
+            <range min="80" max="120"/>
             <default>100</default>
             <summary>Detail pop-up size</summary>
             <description>How much of the room available the pop-up detail panel fills, as a percentage. Used when items open in a pop-up (detail-opens-in "menu" or "modal").</description>
