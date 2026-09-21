@@ -19,7 +19,7 @@
 // panel frames its grid; `_sizePanel` adds it back to what it measures inside.
 //
 // What goes *behind* the panel is the folder's too, and it is asked rather
-// than assumed — see `folderBlur` below.
+// than assumed — see `folderLook` below.
 //
 // Sizing is in two halves: `_budget()` is the room the work area leaves, and
 // `_sizePanel()` — the subclass's — is what it makes of it. Whatever it sets
@@ -50,26 +50,39 @@ const MAX_HEIGHT = 760;
 // The shade behind the panel: the shell's DIALOG_SHADE_NORMAL, not exported.
 const SHADE = new Cogl.Color({red: 0, green: 0, blue: 0, alpha: 204});
 const CLEAR = new Cogl.Color({red: 0, green: 0, blue: 0, alpha: 0});
-// Our copy of a folder's blur, when its folders have one (folderBlur).
+// Our copy of a folder's blur, when its folders have one (folderLook).
 const BLUR = 'media-libraries-panel-blur';
 
-// What this desktop puts behind an open folder. Stock GNOME shades to
-// DIALOG_SHADE_NORMAL and so does a panel of ours; but an extension can take
-// that over — Blur my Shell drops the shade and blurs the background instead —
-// and a panel that went on shading at 80% black would read as a different kind
-// of thing entirely beside the folders it is modelled on. So the folder is
-// asked, once per open, and whatever blur it carries is matched here in place
-// of the shade. With no folders on the desktop there is nothing to ask and the
-// shell's own shade stands.
+// What this desktop puts behind and around an open folder. Stock GNOME
+// shades to DIALOG_SHADE_NORMAL and draws the panel from its theme, and so
+// does a panel of ours; but an extension can take that over — Blur my Shell
+// drops the shade and blurs the background instead, and restyles the panel
+// itself translucent by putting a class of its own on the folder's box — and
+// a panel that went on shading at 80% black behind an opaque box would read
+// as a different kind of thing entirely beside the folders it is modelled on.
+// So a folder is asked, once per open: whatever blur its dialog carries is
+// matched here in place of the shade, and whatever classes its box wears
+// beyond the theme's are put on ours, so the same stylesheet paints both. None
+// of it is ours to compute: with the extension off the folder carries neither,
+// and with no folders on the desktop there is nothing to ask, so the shell's
+// own shade and panel stand.
 //
 // Private shell API, of a piece with the rest in this extension: the app
-// display's folder icons and the dialog each of them keeps.
-function folderBlur() {
+// display's folder icons, the dialog each of them keeps and its `_viewBox`.
+function folderLook() {
     const icons = Main.overview._overview?.controls?._appDisplay?._folderIcons ?? [];
     for (const icon of icons) {
-        for (const effect of icon._dialog?.get_effects() ?? []) {
-            if (effect instanceof Shell.BlurEffect)
-                return {radius: effect.radius, brightness: effect.brightness};
+        const dialog = icon._dialog;
+        if (!dialog)
+            continue;
+        const blur = dialog.get_effects().find(e => e instanceof Shell.BlurEffect);
+        const classes = (dialog._viewBox?.get_style_class_name() ?? '')
+            .split(/\s+/).filter(c => c && c !== 'app-folder-dialog');
+        if (blur || classes.length) {
+            return {
+                blur: blur ? {radius: blur.radius, brightness: blur.brightness} : null,
+                classes,
+            };
         }
     }
     return null;
@@ -134,9 +147,11 @@ export const MediaPanel = GObject.registerClass({
         this._source = null;
         this._isOpen = false;
         this._needsZoomAndFade = false;
-        // The blur this desktop's folders use instead of a shade, if any, and
+        // The look this desktop's folders have instead of the theme's, if any:
+        // their blur in place of the shade, their classes on the box — and
         // the timeline easing our copy of it.
         this._blur = null;
+        this._classes = [];
         this._blurTimeline = null;
         // How far ahead of the zoom the panel's own closing move leaves it,
         // for the tile that is waiting to come back. The subclass sets it.
@@ -303,8 +318,17 @@ export const MediaPanel = GObject.registerClass({
         this._blurTimeline?.stop();
         this._blurTimeline = null;
 
-        if (on)
-            this._blur = folderBlur();
+        if (on) {
+            const look = folderLook();
+            this._blur = look?.blur ?? null;
+            this._classes = look?.classes ?? [];
+            for (const c of this._classes)
+                this._panel.add_style_class_name(c);
+        } else {
+            for (const c of this._classes)
+                this._panel.remove_style_class_name(c);
+            this._classes = [];
+        }
 
         if (!this._blur) {
             this.remove_effect_by_name(BLUR);

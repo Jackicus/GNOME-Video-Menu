@@ -255,14 +255,19 @@ between the panel's edge and the artwork is the same either way —
 .ml-pane-content` are the two halves of that and must agree, or the pane
 overhangs the panel and the clip cuts the backdrop's bottom corners square.
 
-And what goes **behind** it is the folder's too, asked rather than assumed
-(`panel.js` `folderBlur`). Stock GNOME shades to `DIALOG_SHADE_NORMAL` and so
-does this; but an extension can take that over — Blur my Shell drops the shade
-and blurs the background instead — and a panel that went on shading at 80%
-black reads as a different kind of thing entirely beside the folders it is
-modelled on. So a folder's own dialog is looked at once per open and any
-`Shell.BlurEffect` on it is matched here, with the shade dropped; with no
-folders on the desktop there is nothing to ask and the shade stands.
+And what goes **behind and around** it is the folder's too, asked rather than
+assumed (`panel.js` `folderLook`). Stock GNOME shades to `DIALOG_SHADE_NORMAL`
+and paints the panel from its theme, and so does this; but an extension can
+take that over — Blur my Shell drops the shade and blurs the background
+instead, and makes the panel itself translucent with a class of its own on the
+folder's box — and a panel that went on shading at 80% black behind an opaque
+box reads as a different kind of thing entirely beside the folders it is
+modelled on. So a folder's own dialog is looked at once per open: any
+`Shell.BlurEffect` on it is matched here with the shade dropped, and any class
+on its box beyond `app-folder-dialog` goes on ours, so the same stylesheet
+paints both and nothing of the look is computed here. With Blur my Shell off
+the folder carries neither, and with no folders on the desktop there is
+nothing to ask, so the shade and the theme's panel stand.
 
 It opens in **two moves**, so the first is the folder's own: the panel zooms
 out of the tile as the artwork and its buttons alone — poster-shaped, as the
@@ -457,8 +462,8 @@ up in that, rather than a blocking `file_test` per poster.
   own, not the shell's, used to re-attach the section buttons when it rebuilds
   its panels) and `Dash.ShowAppsIcon` (exported, but its `_createIcon` and
   `_iconActor` are private shape the subclass fills in). `panel.js`
-  `folderBlur()` adds `appDisplay._folderIcons` and the `_dialog` each of them
-  keeps, read only to see what this desktop puts behind an open folder; it
+  `folderLook()` adds `appDisplay._folderIcons`, the `_dialog` each of them
+  keeps and its `_viewBox`, read only to see what this desktop puts behind an open folder; it
   finds nothing on a desktop with no folders, and a shade is what it falls back
   to, so this one fails soft. If
   rendering breaks after a GNOME upgrade look at the first; if section
