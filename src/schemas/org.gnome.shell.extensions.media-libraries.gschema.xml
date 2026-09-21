@@ -34,6 +34,11 @@
             <summary>Fetch artwork and descriptions online for TV shows</summary>
             <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
         </key>
+        <key name="tv-shows-open-command" type="s">
+            <default>""</default>
+            <summary>TV show player command</summary>
+            <description>Command this section's files open with, for example "vlc" or "mpv --fullscreen". The file's path is appended. Empty uses the system default application.</description>
+        </key>
 
         <key name="films-enabled" type="b">
             <default>true</default>
@@ -59,6 +64,11 @@
             <default>true</default>
             <summary>Fetch artwork and descriptions online for films</summary>
             <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+        <key name="films-open-command" type="s">
+            <default>""</default>
+            <summary>Film player command</summary>
+            <description>Command this section's files open with, for example "vlc" or "mpv --fullscreen". The file's path is appended. Empty uses the system default application.</description>
         </key>
 
         <key name="music-enabled" type="b">
@@ -86,6 +96,11 @@
             <summary>Fetch artwork and descriptions online for music</summary>
             <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
         </key>
+        <key name="music-open-command" type="s">
+            <default>""</default>
+            <summary>Music player command</summary>
+            <description>Command this section's files open with, for example "rhythmbox" or "mpv --no-video". The file's path is appended. Empty uses the system default application.</description>
+        </key>
 
         <key name="photos-enabled" type="b">
             <default>true</default>
@@ -111,6 +126,11 @@
             <default>true</default>
             <summary>Fetch artwork and descriptions online for photos</summary>
             <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
+        </key>
+        <key name="photos-open-command" type="s">
+            <default>""</default>
+            <summary>Photo viewer command</summary>
+            <description>Command this section's files open with, for example "loupe" or "eog". The file's path is appended. Empty uses the system default application.</description>
         </key>
 
         <!-- Games are not a folder of media: both paths only override the
@@ -222,11 +242,14 @@
             <description>How much of the room available the pop-up detail panel fills, as a percentage. Used when items open in a pop-up (detail-opens-in "menu" or "modal").</description>
         </key>
 
-        <!-- Playback -->
+        <!-- The one player command earlier releases kept for videos. The
+             preferences and the extension move it into tv-shows-open-command
+             and films-open-command the first time either runs, and nothing
+             reads it after that. -->
         <key name="player-command" type="s">
             <default>""</default>
-            <summary>Video player command</summary>
-            <description>Command to open videos with. Empty uses the system default application.</description>
+            <summary>Video player command (legacy)</summary>
+            <description>Superseded by the per-section open commands; kept only so an upgrade carries the value over.</description>
         </key>
     </schema>
 </schemalist>

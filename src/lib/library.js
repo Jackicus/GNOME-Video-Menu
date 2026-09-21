@@ -59,6 +59,27 @@ export function sectionByKey(key) {
     return SECTIONS.find(s => s.key === key) ?? SECTIONS[0];
 }
 
+// The setting that names what a section's files open with, or null for a
+// section whose things are not files to hand a command — a game is launched
+// by its own command line, so it always runs as the platform says.
+export function openCommandKey(section) {
+    return section.key === 'games' ? null : `${section.prefix}-open-command`;
+}
+
+// Earlier releases kept one player command for every video. It is moved into
+// the TV shows and films commands once, here, by whichever of the extension
+// and the preferences runs first, and nothing reads the old key after that.
+export function migrateOpenCommand(settings) {
+    const legacy = settings.get_string('player-command');
+    if (!legacy)
+        return;
+    for (const key of ['tv-shows-open-command', 'films-open-command']) {
+        if (!settings.get_string(key))
+            settings.set_string(key, legacy);
+    }
+    settings.set_string('player-command', '');
+}
+
 function cacheDir() {
     return GLib.build_filenamev([GLib.get_user_cache_dir(), 'media-libraries']);
 }

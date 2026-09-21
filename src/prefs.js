@@ -5,7 +5,7 @@ import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-import {SECTIONS as LIBRARY_SECTIONS, readSections} from './lib/library.js';
+import {SECTIONS as LIBRARY_SECTIONS, migrateOpenCommand, openCommandKey, readSections} from './lib/library.js';
 
 // Everything a source is, in one place: what it is called, what it is good
 // for, where its key comes from and which fields that key has.
@@ -86,18 +86,21 @@ const PAGES = {
         layout: 'One folder per show. Seasons can be subfolders ("Season 2") or SxxEyy in the file names.',
         online: 'Where artwork, synopsis, genres and ratings come from.',
         sources: ['tvmaze', 'tmdb', 'wikipedia'],
+        opener: {title: 'Video player command', hint: 'For example "vlc" or "mpv --fullscreen".'},
     },
     films: {
         lower: 'films', noun: 'films', xdg: null,
         layout: 'One folder or file per film, named "Title (Year)". The largest video in a folder is the feature.',
         online: 'Where posters, synopses, genres and ratings come from.',
         sources: ['tmdb', 'wikipedia'],
+        opener: {title: 'Video player command', hint: 'For example "vlc" or "mpv --fullscreen".'},
     },
     music: {
         lower: 'music', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_MUSIC,
         layout: 'Album folders, optionally inside artist folders. A cover.jpg or folder.jpg beside the tracks is used as the artwork.',
         online: 'Where missing album art comes from.',
         sources: ['itunes'],
+        opener: {title: 'Music player command', hint: 'For example "rhythmbox" or "mpv --no-video".'},
     },
     photos: {
         lower: 'photos', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_PICTURES,
@@ -105,6 +108,7 @@ const PAGES = {
         online: 'Photos never leave this computer; thumbnails are generated locally.',
         sources: [],
         offline: 'Not used — photos are never sent anywhere and thumbnails are made on this machine.',
+        opener: {title: 'Image viewer command', hint: 'For example "loupe" or "eog".'},
     },
     games: {
         lower: 'games', noun: 'games',
@@ -404,24 +408,8 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         });
         appearance.add(accent);
 
-        const playback = new Adw.PreferencesGroup({title: 'Playback'});
-        page.add(playback);
-
-        const player = new Adw.EntryRow({
-            title: 'Video player command',
-            text: settings.get_string('player-command'),
-            show_apply_button: true,
-        });
-        player.connect('apply', () => settings.set_string('player-command', player.get_text().trim()));
-        playback.add(player);
-        playback.add(new Adw.ActionRow({
-            title: 'Leave empty for the system default',
-            subtitle: 'For example "vlc" or "mpv --fullscreen". Music and photos always open with their default apps.',
-            sensitive: false,
-        }));
-
-        // Sources, keys and the online switch are each section's own; all that
-        // is left here is the one button that runs the lot.
+        // Sources, keys, the online switch and what files open with are each
+        // section's own; all that is left here is the one button that runs the lot.
         const library = new Adw.PreferencesGroup({
             title: 'Library',
             description: 'Folders, sources and API keys are on each section\'s own page.',
@@ -467,6 +455,9 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
 
         page.add(this._sourcesGroup(state, section));
 
+        if (openCommandKey(section))
+            page.add(this._openerGroup(state, section));
+
         const library = new Adw.PreferencesGroup({title: 'Library'});
         page.add(library);
 
@@ -481,6 +472,37 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         library.add(status);
 
         return page;
+    }
+
+    // ------------------------------------------------------------------
+    // Opening
+    // ------------------------------------------------------------------
+    // What a section's files open with: a command of the user's own, with the
+    // file's path appended, or the system default when left empty. Games have
+    // none — a game is launched by its own command line.
+    _openerGroup(state, section) {
+        const {settings} = state;
+        const key = openCommandKey(section);
+        const group = new Adw.PreferencesGroup({title: 'Opening'});
+
+        const command = new Adw.EntryRow({
+            title: section.opener.title,
+            text: settings.get_string(key),
+            show_apply_button: true,
+        });
+        command.connect('apply', () => settings.set_string(key, command.get_text().trim()));
+        settings.connect(`changed::${key}`, () => {
+            const value = settings.get_string(key);
+            if (command.get_text().trim() !== value)
+                command.set_text(value);
+        });
+        group.add(command);
+        group.add(new Adw.ActionRow({
+            title: 'Leave empty for the system default',
+            subtitle: `${section.opener.hint} The file's path is added to the end.`,
+            sensitive: false,
+        }));
+        return group;
     }
 
     // ------------------------------------------------------------------
@@ -837,6 +859,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     // moved into the list once, here, so a desktop that upgrades keeps its
     // folders and the scanner never has to read the old key again.
     _migrateFolders(settings) {
+        migrateOpenCommand(settings);
         for (const section of SECTIONS) {
             if (section.paths)
                 continue;

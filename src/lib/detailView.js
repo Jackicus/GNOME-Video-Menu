@@ -55,6 +55,7 @@ export class DetailView {
     // the shell's folder panel, in the popup.
     constructor({onOpen, frame = 'pane'}) {
         this._onOpen = onOpen;
+        this._section = null;
         this._frame = frame;
         this._groups = [];
         this._groupIndex = 0;
@@ -135,6 +136,12 @@ export class DetailView {
         return {width: Math.round(height / aspect), height};
     }
 
+    // Everything the pane opens goes out with the section it was shown for,
+    // since what a file opens with is that section's setting.
+    _open(path) {
+        this._onOpen(path, this._section);
+    }
+
     // `mainColumn` is when the second column — the title, the facts and the
     // list — joins the first: 'auto' as soon as the frame it was built on is
     // free, 'held' when whatever is opening the pane will call `revealMain()`
@@ -143,6 +150,7 @@ export class DetailView {
         this._cancelDeferred();
         this.actor.destroy_all_children();
         this.item = item;
+        this._section = section;
         this._groups = item.groups ?? [];
         this._groupIndex = 0;
         this._list = null;
@@ -269,7 +277,7 @@ export class DetailView {
                 icon: opensFolder ? 'folder-open-symbolic' : 'media-playback-start-symbolic',
             });
             play.set_x_expand(true);
-            play.connect('clicked', () => this._onOpen(item.playPath));
+            play.connect('clicked', () => this._open(item.playPath));
             side.add_child(play);
         }
 
@@ -280,7 +288,7 @@ export class DetailView {
                 styleClass: 'button ml-action-secondary',
             });
             folder.set_x_expand(true);
-            folder.connect('clicked', () => this._onOpen(item.folder));
+            folder.connect('clicked', () => this._open(item.folder));
             side.add_child(folder);
         }
 
@@ -405,7 +413,7 @@ export class DetailView {
                     badges: entry.badges,
                     size: entry.size,
                     icon: entry.icon ?? 'media-playback-start-symbolic',
-                    onActivate: () => this._onOpen(entry.path),
+                    onActivate: () => this._open(entry.path),
                 });
                 // Keyboard focus has to drag the view after it, or a Tab past
                 // the fold never scrolls and so never tops the list up.
@@ -455,7 +463,7 @@ export class DetailView {
                         path: entry.thumb,
                         size: thumbSize,
                         accessibleName: entry.title,
-                        onActivate: () => this._onOpen(entry.path),
+                        onActivate: () => this._open(entry.path),
                     });
                     // As in the list: Tab past the fold has to scroll, or the
                     // grid never tops itself up.

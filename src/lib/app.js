@@ -35,7 +35,7 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 
 import {Duration, Ease, POP_SCALE, allocateNow, fadeTo, flyClone, rectIn} from './anim.js';
-import {SECTIONS, libraryCountLabel, loadLibrary, libraryPath, sectionByKey} from './library.js';
+import {SECTIONS, libraryCountLabel, loadLibrary, libraryPath, migrateOpenCommand, openCommandKey, sectionByKey} from './library.js';
 import {createEmptyState, createHeader} from './widgets.js';
 import {setCornerRadius} from './shape.js';
 import {createMediaView, setGridAlign} from './mediaGrid.js';
@@ -63,11 +63,11 @@ const NAVIGATION_KEYS = [
     Clutter.KEY_Up, Clutter.KEY_Down, Clutter.KEY_Left, Clutter.KEY_Right,
 ];
 
-// Open a file with the configured player, or the system default app. An
-// array is a command line to run as-is (a game launcher, an emulator). The
+// Open a file with the command its section names, or the system default app.
+// An array is a command line to run as-is (a game launcher, an emulator). The
 // shell's own spawn helper says so in a notification when a launch fails, and
 // so does this for the launches it does itself.
-function openPath(path, playerCommand = '') {
+function openPath(path, command = '') {
     if (!path)
         return;
     if (Array.isArray(path)) {
@@ -87,11 +87,11 @@ function openPath(path, playerCommand = '') {
             } catch (e) {
                 // Not there: let the launch below say so.
             }
-            if (playerCommand && !isDir) {
+            if (command && !isDir) {
                 // Only the parse can throw here; the spawn reports itself.
                 let argv;
                 try {
-                    [, argv] = GLib.shell_parse_argv(playerCommand);
+                    [, argv] = GLib.shell_parse_argv(command);
                 } catch (e) {
                     Main.notifyError(`Could not open ${file.get_basename()}`, e.message);
                     return;
@@ -184,6 +184,7 @@ export class MediaLibrariesApp {
     // Lifecycle
     // ------------------------------------------------------------------
     enable() {
+        migrateOpenCommand(this._settings);
         this._sections = loadLibrary();
         this._applyWorkspaceMode();
         this._build();
@@ -841,8 +842,12 @@ export class MediaLibrariesApp {
         this._place = this._shown = HOME;
     }
 
-    _open(path) {
-        openPath(path, this._settings.get_string('player-command'));
+    // What a section's files open with is that section's own setting; a
+    // folder, and anything of a section with no such setting, goes to the
+    // system default.
+    _open(path, section) {
+        const key = section ? openCommandKey(section) : null;
+        openPath(path, key ? this._settings.get_string(key) : '');
     }
 
     // ------------------------------------------------------------------
@@ -862,7 +867,7 @@ export class MediaLibrariesApp {
         // it hosts itself over whatever it is opened from.
         if (this._detailPopsUp()) {
             this._dialog = new DetailDialog({
-                onOpen: path => this._open(path),
+                onOpen: (path, section) => this._open(path, section),
                 size: this._settings.get_int('detail-size') / 100,
                 mode: this._detailMode(),
             });
@@ -924,7 +929,7 @@ export class MediaLibrariesApp {
 
         const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
         if (this._detailOnSurface()) {
-            this._detail = new DetailView({onOpen: path => this._open(path)});
+            this._detail = new DetailView({onOpen: (path, section) => this._open(path, section)});
             this._detail.setSize(bounds.width, bounds.height - HEADER_ALLOWANCE * scale);
             this._detail.actor.hide();
         }
