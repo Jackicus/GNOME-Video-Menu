@@ -280,13 +280,36 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         const appearance = new Adw.PreferencesGroup({title: 'Appearance'});
         page.add(appearance);
 
-        const columns = new Adw.SpinRow({
+        // A slider with a tick at the schema's own default, read from the
+        // schema rather than repeated here, so dragging back to the line is
+        // dragging back to the default.
+        const slider = (key, min, max) => {
+            const scale = new Gtk.Scale({
+                orientation: Gtk.Orientation.HORIZONTAL,
+                adjustment: new Gtk.Adjustment({lower: min, upper: max, step_increment: 1}),
+                digits: 0,
+                draw_value: true,
+                value_pos: Gtk.PositionType.RIGHT,
+                hexpand: true,
+                width_request: 220,
+                valign: Gtk.Align.CENTER,
+            });
+            scale.add_mark(settings.get_default_value(key).deep_unpack(), Gtk.PositionType.BOTTOM, null);
+            scale.set_value(settings.get_int(key));
+            scale.connect('value-changed', () => settings.set_int(key, Math.round(scale.get_value())));
+            settings.connect(`changed::${key}`, () => {
+                if (Math.round(scale.get_value()) !== settings.get_int(key))
+                    scale.set_value(settings.get_int(key));
+            });
+            return scale;
+        };
+
+        const columnsRow = new Adw.ActionRow({
             title: 'Covers per row',
             subtitle: 'Fewer means larger covers. A small space — the grid in the overview, a small screen — fits fewer.',
-            adjustment: new Gtk.Adjustment({lower: 3, upper: 12, step_increment: 1, value: settings.get_int('columns')}),
         });
-        columns.connect('changed', () => settings.set_int('columns', Math.round(columns.get_value())));
-        appearance.add(columns);
+        columnsRow.add_suffix(slider('columns', 3, 12));
+        appearance.add(columnsRow);
 
         // Where a row that is not full sits: centred under the full ones, as
         // the app grid does, or against the leading edge.
@@ -306,21 +329,19 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         alignRow.add_suffix(align);
         appearance.add(alignRow);
 
-        const radius = new Adw.SpinRow({
+        const radiusRow = new Adw.ActionRow({
             title: 'Corner radius',
             subtitle: 'How rounded covers, tiles and the detail pane are, in pixels. 0 is square.',
-            adjustment: new Gtk.Adjustment({lower: 0, upper: 40, step_increment: 1, value: settings.get_int('corner-radius')}),
         });
-        radius.connect('changed', () => settings.set_int('corner-radius', Math.round(radius.get_value())));
-        appearance.add(radius);
+        radiusRow.add_suffix(slider('corner-radius', 0, 40));
+        appearance.add(radiusRow);
 
-        const detailSize = new Adw.SpinRow({
+        const detailSizeRow = new Adw.ActionRow({
             title: 'Detail pop-up size',
             subtitle: 'How much of the available room the pop-up fills, as a percentage',
-            adjustment: new Gtk.Adjustment({lower: 50, upper: 100, step_increment: 5, value: settings.get_int('detail-size')}),
         });
-        detailSize.connect('changed', () => settings.set_int('detail-size', Math.round(detailSize.get_value())));
-        appearance.add(detailSize);
+        detailSizeRow.add_suffix(slider('detail-size', 50, 100));
+        appearance.add(detailSizeRow);
 
         const VIEWS = {
             desktop: 'Drawn straight onto the wallpaper, with a home menu of launchers. Every section shares the one workspace.',
@@ -350,7 +371,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             workspace.sensitive = onSurface;
             workspaces.visible = onSurface || detail === 'workspaces';
             // The pop-up panel only exists for the two places that are one.
-            detailSize.sensitive = detail === 'menu' || detail === 'modal';
+            detailSizeRow.sensitive = detail === 'menu' || detail === 'modal';
         };
         for (const [group, key] of [[modes, 'library-opens-in'], [details, 'detail-opens-in']]) {
             group.connect('notify::active-name', () => {
