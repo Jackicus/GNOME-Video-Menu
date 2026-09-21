@@ -121,9 +121,10 @@ Mix them however you like — a library in the overview with details popping up
 over the desktop is a perfectly good combination.
 
 The rest of the **Appearance** group is one set of settings that applies to
-every view: **covers per row** (fewer means bigger), **corner radius**, and
-how much of the screen a pop-up fills. Colour comes from your system accent,
-and text sizes follow Settings → Accessibility → Large Text.
+every view: **rows** and **columns** (fewer of either means bigger covers),
+**corner radius**, and how much of the screen a pop-up fills. Colour comes
+from your system accent, and text sizes follow Settings → Accessibility →
+Large Text.
 
 ---
 

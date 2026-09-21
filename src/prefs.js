@@ -304,11 +304,18 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             return scale;
         };
 
-        const columnsRow = new Adw.ActionRow({
-            title: 'Covers per row',
-            subtitle: 'Fewer means larger covers. A small space — the grid in the overview, a small screen — fits fewer.',
+        const rowsRow = new Adw.ActionRow({
+            title: 'Rows',
+            subtitle: 'Covers down a page. Fewer means larger covers.',
         });
-        columnsRow.add_suffix(slider('columns', 3, 12));
+        rowsRow.add_suffix(slider('rows', 1, 3));
+        appearance.add(rowsRow);
+
+        const columnsRow = new Adw.ActionRow({
+            title: 'Columns',
+            subtitle: 'Covers across a page. Fewer means larger covers. A small space — the grid in the overview, a small screen — fits fewer of either.',
+        });
+        columnsRow.add_suffix(slider('columns', 4, 10));
         appearance.add(columnsRow);
 
         // Where a row that is not full sits: centred under the full ones, as

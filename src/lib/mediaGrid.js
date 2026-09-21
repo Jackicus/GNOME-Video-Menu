@@ -30,7 +30,7 @@ const BaseAppView = Object.getPrototypeOf(AppDisplay.AppDisplay);
 // Every number below is logical pixels, as the theme writes them, and is
 // multiplied by the scale factor where it meets an allocation.
 //
-// The smallest a cover is allowed to get; it is what caps "covers per row".
+// The smallest a cover is allowed to get; it is what caps "columns" and "rows".
 const MIN_ART = 96;
 // .icon-grid column-spacing/row-spacing (data/theme/…/_app-grid.scss:8-9), the
 // value the theme hands the layout; only gridFor, which runs before the grid
@@ -69,11 +69,12 @@ export function setGridAlign(align) {
 // they arrive and does not page them again when the mode changes (the shell's
 // own modes all hold twenty-four).
 //
-// `covers` is the "covers per row" preference, and it leads: the cover is
-// whatever size that many of them come to in the width on offer. It is capped
-// by how many fit at MIN_ART, which is what makes the smallest box — the
-// overview's grid slot — the bottleneck, in one place, for all three views.
-function gridFor(width, height, aspect, covers) {
+// `columns` and `rows` are the two "covers per page" preferences, and they
+// lead: the cover is whatever size that many of them come to in the width and
+// height on offer. Each is capped by how many fit at MIN_ART, which is what
+// makes the smallest box — the overview's grid slot — the bottleneck, in one
+// place, for all three views.
+function gridFor(width, height, aspect, wantColumns, wantRows) {
     const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
     const gap = GAP * scale;
     const pad = TILE_PADDING * scale;
@@ -83,26 +84,21 @@ function gridFor(width, height, aspect, covers) {
     const gridW = width * (1 - ARROWS_SHARE) - PAGE_PADDING_H * scale;
     const gridH = height - (DOTS_HEIGHT + PAGE_PADDING_V + TITLE_LINE) * scale;
 
-    // How many fit at the smallest cover.
-    const fit = Math.floor((gridW + gap) / (minArt / aspect + pad + gap));
-    const columns = Math.max(1, Math.min(covers, fit));
+    // How many columns fit at the smallest cover.
+    const fitColumns = Math.floor((gridW + gap) / (minArt / aspect + pad + gap));
+    const columns = Math.max(1, Math.min(wantColumns, fitColumns));
     const cellW = Math.floor((gridW - gap * (columns - 1)) / columns);
-    const byWidth = Math.max(minArt,
-        Math.floor(Math.min((cellW - pad) * aspect, gridH - chrome)));
+    const byWidth = Math.floor((cellW - pad) * aspect);
 
-    // The rows are rounded rather than floored, and the cover shrunk to let
-    // them fit: sized from the width alone, six covers to a row came to a
-    // second row that missed the page by a few pixels, and the bottom half of
-    // the page stood empty. A cover a little smaller than the width allows
-    // fills the page; the block is narrower, and the layout centres it. Only
-    // when the rounded count cannot fit even at MIN_ART is the count floored.
+    // How many rows fit at the smallest cover, the same way.
     const forRows = n => Math.floor((gridH + gap) / n - chrome - gap);
-    let rows = Math.max(1, Math.round((gridH + gap) / (byWidth + chrome + gap)));
-    let iconSize = Math.min(byWidth, forRows(rows));
-    if (iconSize < minArt) {
-        rows = Math.max(1, Math.floor((gridH + gap) / (byWidth + chrome + gap)));
-        iconSize = Math.max(minArt, Math.min(byWidth, forRows(rows)));
-    }
+    const fitRows = Math.floor((gridH + gap) / (minArt + chrome + gap));
+    const rows = Math.max(1, Math.min(wantRows, fitRows));
+
+    // The cover is the largest it can be before either axis is hit: that many
+    // columns across, or that many rows down. The other axis is left with
+    // slack, and the layout centres the block in it.
+    const iconSize = Math.max(minArt, Math.min(byWidth, forRows(rows)));
 
     return {rows, columns, iconSize};
 }
@@ -141,9 +137,10 @@ class MediaLibrariesPosterGridLayout extends IconGrid.IconGridLayout {
         // square childSize and ours is a poster. The block is centred
         // whatever `grid-align` says: the setting is where a part-full row
         // sits under the full ones, not where the block sits on the page.
-        // gridFor shrinks the cover to fit a rounded row count, so the block
-        // can be well short of the page width, and a block hugging the
-        // leading edge then left all of that as one gap on the trailing side.
+        // gridFor shrinks the cover to fit the "rows" and "columns" settings
+        // exactly, so the block can be well short of the page width, and a
+        // block hugging the leading edge then left all of that as one gap on
+        // the trailing side.
         const centred = gridAlign === 'center';
         const left = pad.left + Math.max(0, (this._pageWidth - pad.left - pad.right - blockW) / 2);
         const top = pad.top +
@@ -392,10 +389,10 @@ class MediaLibrariesMediaView extends BaseAppView {
     }
 });
 
-// A view of `items` for the box it is given. `covers` is the covers-per-row
-// setting, which every caller passes.
-export function createMediaView({section, items, width, height, covers, onActivate}) {
-    pendingGrid = gridFor(width, height, section.aspect, covers);
+// A view of `items` for the box it is given. `columns` and `rows` are the
+// grid-shape settings, which every caller passes.
+export function createMediaView({section, items, width, height, columns, rows, onActivate}) {
+    pendingGrid = gridFor(width, height, section.aspect, columns, rows);
     const view = new MediaView({section, items, onActivate});
     // Filling the grid moves it: each batch of tiles makes another page, and
     // the grid follows the one it has just made. Start at the first.

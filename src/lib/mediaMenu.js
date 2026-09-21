@@ -43,12 +43,13 @@ const DASH_MAX_SHARE = 0.16;
 const VERTICAL_SPACING_SHARE = 0.02;
 
 export class MediaMenu {
-    constructor({sections, itemsFor, onActivate, covers}) {
+    constructor({sections, itemsFor, onActivate, columns, rows}) {
         // A section with nothing in it gets no button.
         this._sections = sections.filter(s => itemsFor(s.key).length);
         this._itemsFor = itemsFor;
         this._onActivate = onActivate;
-        this._covers = covers;
+        this._columns = columns;
+        this._rows = rows;
         this._views = new Map();
         this._buttons = new SectionButtons({
             sections: this._sections,
@@ -423,7 +424,8 @@ export class MediaMenu {
             items: this._itemsFor(key),
             width,
             height,
-            covers: this._covers,
+            columns: this._columns,
+            rows: this._rows,
             onActivate: this._onActivate,
         });
         view.visible = false;

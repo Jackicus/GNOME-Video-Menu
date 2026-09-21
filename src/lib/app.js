@@ -214,7 +214,7 @@ export class MediaLibrariesApp {
         Main.overview.connectObject('hidden',
             () => this._syncKeyFocus(this._onTarget()), this);
 
-        const rebuildKeys = ['workspace-index', 'columns', 'grid-align', 'corner-radius', 'detail-size',
+        const rebuildKeys = ['workspace-index', 'columns', 'rows', 'grid-align', 'corner-radius', 'detail-size',
             ...SECTIONS.map(s => `${s.prefix}-enabled`)];
         for (const key of rebuildKeys)
             this._settings.connectObject(`changed::${key}`, () => this._scheduleRebuild(), this);
@@ -412,9 +412,13 @@ export class MediaLibrariesApp {
         return this._settings.get_int('workspace-index');
     }
 
-    // "Covers per row", for every grid in every view.
-    _covers() {
+    // The grid shape, for every grid in every view.
+    _columns() {
         return this._settings.get_int('columns');
+    }
+
+    _rows() {
+        return this._settings.get_int('rows');
     }
 
     // ------------------------------------------------------------------
@@ -873,7 +877,8 @@ export class MediaLibrariesApp {
                 sections: this._enabledSections(),
                 itemsFor: key => this._sections[key] ?? [],
                 onActivate: (key, item, tile) => this._openPicked(key, item, tile),
-                covers: this._covers(),
+                columns: this._columns(),
+                rows: this._rows(),
             });
             this._browser.enable();
         }
@@ -1038,7 +1043,8 @@ export class MediaLibrariesApp {
                 items,
                 width,
                 height: height - HEADER_ALLOWANCE * scale,
-                covers: this._covers(),
+                columns: this._columns(),
+                rows: this._rows(),
                 onActivate: (_key, item, tile) => this._openItem(item, tile),
             });
             stack.add_child(library);

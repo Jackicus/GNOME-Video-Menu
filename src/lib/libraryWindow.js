@@ -32,12 +32,13 @@ import {createTitles} from './widgets.js';
 // the way back out is the button it came from, Escape, or a click away.
 const LibraryPanel = GObject.registerClass(
 class MediaLibrariesLibraryPanel extends MediaPanel {
-    _init({covers, onActivate}) {
+    _init({columns, rows, onActivate}) {
         // The folder's own behaviour: the panel goes when the button it came
         // out of unmaps, which is what closes it with the overview.
         super._init({dieWithSource: true});
 
-        this._covers = covers;
+        this._columns = columns;
+        this._rows = rows;
         this._onActivate = onActivate;
         this._views = new Map();
         // The budget the views were built for. Not `_budget`, which is the
@@ -103,7 +104,8 @@ class MediaLibrariesLibraryPanel extends MediaPanel {
                 items,
                 width,
                 height,
-                covers: this._covers,
+                columns: this._columns,
+                rows: this._rows,
                 onActivate: this._onActivate,
             });
             this._stack.add_child(view);
@@ -135,12 +137,13 @@ class MediaLibrariesLibraryPanel extends MediaPanel {
 });
 
 export class LibraryWindow {
-    constructor({sections, itemsFor, onActivate, covers}) {
+    constructor({sections, itemsFor, onActivate, columns, rows}) {
         // A section with nothing in it gets no button, as in the menu library.
         this._sections = sections.filter(s => itemsFor(s.key).length);
         this._itemsFor = itemsFor;
         this._onActivate = onActivate;
-        this._covers = covers;
+        this._columns = columns;
+        this._rows = rows;
         this._buttons = new SectionButtons({
             sections: this._sections,
             onActivate: key => this._toggle(key),
@@ -180,7 +183,8 @@ export class LibraryWindow {
 
         if (!this._panel) {
             this._panel = new LibraryPanel({
-                covers: this._covers,
+                columns: this._columns,
+                rows: this._rows,
                 onActivate: this._onActivate,
             });
             // However it closes — Escape, the shade, the button unmapping
