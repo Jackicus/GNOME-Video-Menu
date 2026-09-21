@@ -206,9 +206,16 @@ its icon and label — and both places open from them. Those
 buttons are the only way in, and they behave as a dock's Show Apps does:
 pressed on the desktop they open the overview themselves, so a second press or
 Escape closes it again and lands on the desktop; pressed with the overview
-already up, back to the window picker. Show Apps itself is left alone — it
-leaves the grid as it always has, and the grid shows the apps again next time
-because a browser only lives as long as the grid is up. A rebuild (a setting
+already up, back to the window picker. Every way out of an overview a button
+of ours opened goes all the way down, Show Apps included: a dock keeps a
+`forcedOverview` flag of its own that ours never sets, so an overview left
+standing settled on the window picker and every Show Apps press after that
+came back there instead of to the desktop. And a switch — Films pressed with
+TV Shows up — closes the overview and opens it again onto the new section,
+two of the shell's own transitions rather than a swap of grids inside one.
+Show Apps itself is left alone — it leaves the grid as it always has, and the
+grid shows the apps again next time because a browser only lives as long as
+the grid is up. A rebuild (a setting
 changing, a rescan landing) tears the browser down and makes another, and puts
 back the section that was showing (`state`/`restore` on the browser), so the
 change shows where it is being looked for rather than on the next press — a

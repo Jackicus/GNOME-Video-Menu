@@ -13,14 +13,21 @@
 // desktop opened the overview itself, so a second press — or Escape — takes
 // the overview down and lands back on the desktop; pressed with the overview
 // already up, it only goes back to the window picker, as the shell's own
-// Show Apps does. Show Apps itself is left alone: it leaves the grid as it
-// always has, and what the grid shows when it is next opened is the apps,
-// because a view only lives as long as the grid is up.
+// Show Apps does. And whatever way out of such an overview is taken goes all
+// the way down: Show Apps unchecked with a view of ours up closes it (a dock
+// only keeps its own `forcedOverview`, so left standing it would settle on
+// the window picker, and every Show Apps press after that came back there
+// rather than to the desktop), and another section's button closes it and
+// opens it again onto that section — two of the shell's own transitions
+// rather than a swap of grids inside one. Show Apps itself is left alone: it
+// leaves the grid as it always has, and what the grid shows when it is next
+// opened is the apps, because a view only lives as long as the grid is up.
 //
 // What is ours here: the workspaces row above the grid is folded away while a
 // view is up, so the posters get its room.
 
 import Clutter from 'gi://Clutter';
+import GLib from 'gi://GLib';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {ControlsState} from 'resource:///org/gnome/shell/ui/overviewControls.js';
@@ -57,6 +64,10 @@ export class MediaMenu {
         // Whether the overview that is up is one a button of ours opened.
         this._forced = false;
         this._escapeId = 0;
+        // The section to open onto once the overview has gone down: a
+        // switch closes the one that is up and opens another.
+        this._next = null;
+        this._reopenId = 0;
     }
 
     enable() {
@@ -80,10 +91,24 @@ export class MediaMenu {
         // on for the whole slide down to the window picker, which used to
         // leave a view up with nothing showing it and Show Apps still ours,
         // so the next click on it went nowhere.)
+        //
+        // Unchecked with a view of ours up in an overview a button of ours
+        // opened, that is Show Apps pressed — or the app grid stepped down
+        // from — and the overview goes down whole, as it does for Escape.
+        // Not while a swipe is landing (the shell unchecks before it eases,
+        // and the gesture is the shell's), and not for a search, which
+        // unchecks as it starts and puts the grid back as it ends.
         this._showAppsButton = Main.overview.dash.showAppsButton;
         this._showAppsButton.connectObject('notify::checked', button => {
-            if (!button.checked)
-                this._show(null);
+            if (button.checked)
+                return;
+            const leaving = this._current && this._forced &&
+                Main.overview.visible && !Main.overview.animationInProgress &&
+                !this._adjustment?.gestureInProgress &&
+                !this._controls._searchController?.searchActive;
+            this._show(null);
+            if (leaving)
+                Main.overview.hide();
         }, this);
 
         // The end of a search shows the workspaces again, whatever is up.
@@ -95,8 +120,22 @@ export class MediaMenu {
         this._adjustment = this._controls._stateAdjustment ?? null;
         this._adjustment?.connectObject('notify::value', () => this._syncWorkspaces(), this);
 
-        // However the overview goes, it is nobody's forced one any more.
-        Main.overview.connectObject('hidden', () => this._unforce(), this);
+        // However the overview goes, it is nobody's forced one any more —
+        // and if it went down for a switch, it comes back up onto the
+        // section that asked, off the idle so the shell's own hide has
+        // finished with it first.
+        Main.overview.connectObject('hidden', () => {
+            this._unforce();
+            const next = this._next;
+            this._next = null;
+            if (next && !this._reopenId) {
+                this._reopenId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                    this._reopenId = 0;
+                    this.open(next);
+                    return GLib.SOURCE_REMOVE;
+                });
+            }
+        }, this);
 
         this._foldWorkspaces();
 
@@ -118,6 +157,10 @@ export class MediaMenu {
         this._showAppsButton = null;
         Main.overview.disconnectObject(this);
         this._unforce();
+        if (this._reopenId)
+            GLib.source_remove(this._reopenId);
+        this._reopenId = 0;
+        this._next = null;
         this._controls._searchController?.disconnectObject(this);
         this._adjustment?.disconnectObject(this);
         this._adjustment = null;
@@ -205,13 +248,19 @@ export class MediaMenu {
     // A section's button: its view, opening the overview onto it if need be;
     // or, when that view is what is up, the way back out — to the desktop if
     // this is an overview a button of ours opened, else unchecked, which the
-    // shell takes back to the window picker.
+    // shell takes back to the window picker. With another section's view up
+    // the overview goes down and comes back up onto this one (see `hidden`),
+    // rather than the grids swapping inside it.
     _toggle(key) {
-        if (Main.overview.visible && this._showAppsButton.checked && this._current === key) {
-            if (this._forced)
+        if (Main.overview.visible && this._showAppsButton.checked && this._current) {
+            if (this._current !== key) {
+                this._next = key;
                 Main.overview.hide();
-            else
+            } else if (this._forced) {
+                Main.overview.hide();
+            } else {
                 this._showAppsButton.checked = false;
+            }
             return;
         }
         this.open(key);
@@ -249,6 +298,7 @@ export class MediaMenu {
     // The overview, on a section's view: opened onto it, or brought up to the
     // grid if it is already showing.
     open(key) {
+        this._next = null;
         if (!this._appsBox || !this._sections.some(s => s.key === key))
             return;
         this._show(key);
