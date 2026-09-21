@@ -235,9 +235,9 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         // One vocabulary, offered twice: the same four places for the library
         // and for a picked item, each read without reference to the other.
         const PLACES = [
+            ['menu', 'Menu'],
             ['desktop', 'Desktop'],
             ['workspaces', 'Workspaces'],
-            ['menu', 'Menu'],
             ['modal', 'Modal'],
         ];
         const toggles = () => {

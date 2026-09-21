@@ -164,7 +164,7 @@
                 <choice value="menu"/>
                 <choice value="modal"/>
             </choices>
-            <default>"workspaces"</default>
+            <default>"menu"</default>
             <summary>Where the library opens</summary>
             <description>Where a section's grid is drawn. "desktop" and "workspaces" both draw it on the wallpaper, under a home menu of launchers: "desktop" keeps every section on the one workspace, "workspaces" gives each section it opens a workspace of its own and slides to it. "menu" puts a grid per section in the overview, beside the applications, opened from the buttons next to Show Apps. "modal" pops one up in the folder's panel over the desktop, from the same buttons, closed with Escape, a click away, or the button again. Only one is ever built. Where a picked item opens is detail-opens-in, which is read independently of this.</description>
         </key>
@@ -175,7 +175,7 @@
                 <choice value="menu"/>
                 <choice value="modal"/>
             </choices>
-            <default>"desktop"</default>
+            <default>"menu"</default>
             <summary>Where a picked item opens</summary>
             <description>Where the detail pane of a picked item is drawn. "desktop" puts it on the wallpaper of the workspace the pick was made on — in place of the grid, when the library is drawn there too. "workspaces" puts it on a workspace of its own and slides to it. "menu" pops it up the way the shell opens an app folder, zooming out of the tile, over whatever the pick was made on, and it goes when that tile does. "modal" is the same panel hosted over the desktop always, outliving the overview and a change of workspace until Escape or a click away closes it.</description>
         </key>
