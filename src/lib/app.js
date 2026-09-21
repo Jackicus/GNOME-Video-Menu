@@ -38,7 +38,7 @@ import {Duration, Ease, POP_SCALE, allocateNow, fadeTo, flyClone, rectIn} from '
 import {SECTIONS, libraryCountLabel, loadLibrary, libraryPath, sectionByKey} from './library.js';
 import {createEmptyState, createHeader} from './widgets.js';
 import {setCornerRadius} from './shape.js';
-import {createMediaView} from './mediaGrid.js';
+import {createMediaView, setGridAlign} from './mediaGrid.js';
 import {HOME, HomeView} from './homeView.js';
 import {DetailView} from './detailView.js';
 import {OverviewPreview} from './overviewPreview.js';
@@ -214,7 +214,7 @@ export class MediaLibrariesApp {
         Main.overview.connectObject('hidden',
             () => this._syncKeyFocus(this._onTarget()), this);
 
-        const rebuildKeys = ['workspace-index', 'columns', 'corner-radius', 'detail-size',
+        const rebuildKeys = ['workspace-index', 'columns', 'grid-align', 'corner-radius', 'detail-size',
             ...SECTIONS.map(s => `${s.prefix}-enabled`)];
         for (const key of rebuildKeys)
             this._settings.connectObject(`changed::${key}`, () => this._scheduleRebuild(), this);
@@ -848,6 +848,7 @@ export class MediaLibrariesApp {
         // Every rounded surface reads its radius as it is constructed, so the
         // setting has to be in place before anything below is built.
         setCornerRadius(this._settings.get_int('corner-radius'));
+        setGridAlign(this._settings.get_string('grid-align'));
 
         // Recorded first, whatever is built below: a geometry change compares
         // against it, and without it every 'workareas-changed' would rebuild.

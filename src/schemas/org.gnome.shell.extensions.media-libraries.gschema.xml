@@ -193,6 +193,15 @@
             <summary>Covers per row</summary>
             <description>Covers per row. Fewer means larger covers. The count is capped by what fits the space the grid is drawn in — the overview's grid slot is the smallest — so a narrow space shows fewer.</description>
         </key>
+        <key name="grid-align" type="s">
+            <choices>
+                <choice value="center"/>
+                <choice value="start"/>
+            </choices>
+            <default>"center"</default>
+            <summary>Grid alignment</summary>
+            <description>Where the covers sit when a row is not full: "center" centres a part-full row under the full ones, as the app grid does; "start" lines it up against the leading edge. Full rows are centred on the page either way.</description>
+        </key>
         <key name="corner-radius" type="i">
             <range min="0" max="40"/>
             <default>18</default>

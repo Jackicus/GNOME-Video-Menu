@@ -54,6 +54,16 @@ const DOTS_HEIGHT = 36;
 // Pages built beyond the one showing, so the next is there to swipe to.
 const PAGES_AHEAD = 2;
 
+// The `grid-align` setting: 'center' places a part-full row as the app grid
+// does, under the middle of the full ones, 'start' lines it up on the leading
+// edge. The block itself is always centred. Read by the layout as it
+// allocates, so it is set before any grid is built and a change rebuilds them
+// all (app.js).
+let gridAlign = 'center';
+export function setGridAlign(align) {
+    gridAlign = align === 'start' ? 'start' : 'center';
+}
+
 // Rows, columns and the artwork height that fills them, for the box a view is
 // given. Decided once, before any item is added: the layout pages items as
 // they arrive and does not page them again when the mode changes (the shell's
@@ -128,7 +138,13 @@ class MediaLibrariesPosterGridLayout extends IconGrid.IconGridLayout {
         const blockH = rows * cellH + (rows - 1) * vGap;
         // IconGridLayout._calculateSpacing's pageHalign/pageValign CENTER
         // (iconGrid.js:591-630) done by hand, because that one takes a single
-        // square childSize and ours is a poster.
+        // square childSize and ours is a poster. The block is centred
+        // whatever `grid-align` says: the setting is where a part-full row
+        // sits under the full ones, not where the block sits on the page.
+        // gridFor shrinks the cover to fit a rounded row count, so the block
+        // can be well short of the page width, and a block hugging the
+        // leading edge then left all of that as one gap on the trailing side.
+        const centred = gridAlign === 'center';
         const left = pad.left + Math.max(0, (this._pageWidth - pad.left - pad.right - blockW) / 2);
         const top = pad.top +
             Math.max(0, (this._pageHeight - pad.top - pad.bottom - TITLE_LINE * scale - blockH) / 2);
@@ -142,11 +158,14 @@ class MediaLibrariesPosterGridLayout extends IconGrid.IconGridLayout {
                 const row = Math.floor(index / columns);
                 // _getRowPadding with lastRowAlign CENTER (iconGrid.js:649-683),
                 // which this override skips past: a part-full last row is
-                // centred under the full ones instead of hugging the start.
-                // Passing `last_row_align` in the params would do nothing,
-                // since the parent's own loop never runs.
+                // centred under the full ones instead of hugging the start,
+                // unless `grid-align` says start. Passing `last_row_align` in
+                // the params would do nothing, since the parent's own loop
+                // never runs.
                 const inRow = Math.min(columns, page.visibleChildren.length - row * columns);
-                const rowOffset = (rtl ? -1 : 1) * (columns - inRow) * (cellW + hGap) / 2;
+                const rowOffset = centred
+                    ? (rtl ? -1 : 1) * (columns - inRow) * (cellW + hGap) / 2
+                    : 0;
                 box.set_origin(
                     Math.floor(pageIndex * this._pageWidth + left + rowOffset +
                         column * (cellW + hGap)),
@@ -275,6 +294,24 @@ class MediaLibrariesMediaView extends BaseAppView {
         // say — leaves the arrows with nothing to move between.
         global.focus_manager.add_group(this);
         this.connect('destroy', () => global.focus_manager.remove_group(this));
+
+        // The page dots keep their room whether or not they show. The shell
+        // hides them for a single page (pageIndicators.js setNPages), which
+        // hands the grid their height and re-centres it: a section with one
+        // page sat seven pixels lower than one with two, for the same
+        // covers. gridFor budgets DOTS_HEIGHT for every view, so the dots
+        // are faded rather than dropped and every section lands the same.
+        const dots = this._pageIndicators;
+        const holdRoom = () => {
+            if (!dots.visible) {
+                dots.visible = true;
+                dots.opacity = 0;
+            } else if (dots.get_n_children() > 1) {
+                dots.opacity = 255;
+            }
+        };
+        dots.connect('notify::visible', holdRoom);
+        holdRoom();
 
         this._section = section;
         this._data = items;

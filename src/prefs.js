@@ -288,6 +288,24 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         columns.connect('changed', () => settings.set_int('columns', Math.round(columns.get_value())));
         appearance.add(columns);
 
+        // Where a row that is not full sits: centred under the full ones, as
+        // the app grid does, or against the leading edge.
+        const align = new Adw.ToggleGroup({valign: Gtk.Align.CENTER, homogeneous: true, can_shrink: false});
+        align.add(new Adw.Toggle({name: 'center', label: 'Centre'}));
+        align.add(new Adw.Toggle({name: 'start', label: 'Left'}));
+        align.set_active_name(settings.get_string('grid-align'));
+        align.connect('notify::active-name', () => settings.set_string('grid-align', align.get_active_name()));
+        settings.connect('changed::grid-align', () => {
+            if (align.get_active_name() !== settings.get_string('grid-align'))
+                align.set_active_name(settings.get_string('grid-align'));
+        });
+        const alignRow = new Adw.ActionRow({
+            title: 'Align covers',
+            subtitle: 'Where a row that is not full sits',
+        });
+        alignRow.add_suffix(align);
+        appearance.add(alignRow);
+
         const radius = new Adw.SpinRow({
             title: 'Corner radius',
             subtitle: 'How rounded covers, tiles and the detail pane are, in pixels. 0 is square.',

@@ -350,7 +350,14 @@ up in that, rather than a blocking `file_test` per poster.
   panel — capped by what fits at `mediaGrid.js`'s `MIN_ART` in the box that view
   is given, so a narrow space simply shows fewer; `corner-radius` is above;
   `detail-size` (50–100%) is how much of the work area a pop-up detail panel
-  fills, and reaches `panel.js` `_budget()` alone. The hero artwork under it
+  fills, and reaches `panel.js` `_budget()` alone; `grid-align` is whether a
+  part-full row is centred under the full ones, as the app grid has it, or
+  hugs the leading edge (`mediaGrid.js` `setGridAlign`, read by the layout as
+  it allocates); the block itself is always centred, because `gridFor` shrinks
+  the cover to fit a rounded row count and a block hugging the edge left all
+  of that slack as one gap on the far side. The page dots keep their room on a one-page section — the
+  shell hides them for a single page and the grid re-centred seven pixels
+  lower — so every section's rows land on the same lines. The hero artwork under it
   has a floor of one thumbnail (`detailView.js` `THUMB_SIZE`, 132 logical px):
   on a small work area the smallest `detail-size` leaves less room than the
   buttons beneath the artwork take, and without the floor the hero came out at
