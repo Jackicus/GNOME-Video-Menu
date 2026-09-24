@@ -1,6 +1,6 @@
 ---
 name: drive-extension
-description: Run Media Libraries in a throwaway nested GNOME Shell, mirrored live on the user's desktop — click through it, screenshot it, then shut it down. Use whenever a change must be SEEN (layout, spacing, colour, animation end-states, Home/Library/Detail navigation, the overview and workspace-slide clones), or needs a fresh shell start (extension.js, metadata.json, a new UUID).
+description: Run Media Libraries in a throwaway nested GNOME Shell, mirrored live on the user's desktop — click through it, screenshot it, then shut it down. Use whenever a change must be SEEN (layout, spacing, colour, animation end-states, the tabs, Library → Detail navigation, the overview and workspace-slide clones), or needs a fresh shell start (extension.js, metadata.json, a new UUID).
 ---
 
 # Driving Media Libraries in a nested shell
@@ -46,7 +46,7 @@ walkthrough is **one** tool call, and it stops at the first failing step:
 | `say TEXT` | Banner in the nested shell (≤ ~40 chars). Put one before every click or check. |
 | `click X Y` / `move X Y` | Click / hover at desktop coordinates |
 | `key KEYSYM` | `Escape`, `Return`, arrows, `F1`–`F12`, a remote's `XF86OK`/`XF86Back`/`XF86HomePage`/`XF86ChannelUp`…, one character, or a chord like `Super+Page_Down` |
-| `wait SECS` | Let an animation land: ~1 s after anything that changes workspace (a launcher, the Home pill), ~0.6 s after opening or closing an item |
+| `wait SECS` | Let an animation land: ~1 s after anything that changes workspace (the button, a tab switch that claims or releases one), ~0.6 s after opening or closing an item |
 | `shot [FILE [X Y W H]]` | Screenshot, or **just a region** — crop to what you are checking (a header strip, one tile) rather than reading 1600×900 every time |
 | `overview on\|off` | Show/hide the overview. While on, shots and clicks act on it (for `overviewPreview.js`); nothing dismisses it until `off`. |
 
@@ -74,41 +74,52 @@ old workspaces, dconf snapshot and whatever the previous build left on screen; o
 a fresh start exercises `extension.js`, the enable path and first-frame layout the
 way a login does. Edits to `extension.js` or `metadata.json` *need* one.
 
-## Reading the screen (1600×900)
+## Reading the screen (1600×900, Dash to Panel on — measured 2026-09-25)
 
 Measure from a fresh screenshot if the columns setting, enabled sections, accent or
-geometry changed. Roughly:
+geometry changed; these are what the layout gives with the defaults. There is one
+button, beside Show Apps — Show Apps ≈ (30, 875), the library button ≈ (90, 875),
+tooltip "Videos" — and pressing it is the only way in everywhere; there is no home
+menu and no per-section button.
 
-- **Home menu** (what a fresh start shows, when `library-opens-in` is `desktop`
-  or `workspaces`): launchers
-  in a centred row at y ≈ 465; with all six sections their centres are x ≈ 200, 440,
-  680, 920, 1160, 1400. Clicking one opens that section on a new workspace, where the
-  **Home** pill at (1520, 83) closes it again.
-  `key Super+Page_Up` goes back to Home and leaves the section open. That is
-  `library-opens-in` `workspaces`; in `desktop` the same click swaps the page
-  on the one workspace and the Home pill swaps it back, with no slide. Check
-  which by cropping the workspace indicator: `shot F 0 0 140 30`.
+- **`desktop` / `workspaces`** (`library-opens-in`): pressing the button draws the
+  library — tabs over a grid — on the wallpaper. Header strip y ≈ 83: tabs centred
+  (TV Shows ≈ x 765, Films ≈ x 846), Settings ≈ (1508, 83), Close ≈ (1553, 83).
+  Grid rows from y ≈ 300, first poster ≈ (325, 300). Opening an item swaps the
+  tabs for a Back button at (48, 83). In `desktop` the button (or Close, or
+  Escape) puts the library away again on the same workspace, no slide; pressed
+  on another workspace it moves there rather than opening a second copy. In
+  `workspaces` the button claims a workspace and slides to it; closing it
+  slides back to wherever it was opened from and gives the claimed one up.
+  Check which mode you are in by cropping the workspace indicator:
+  `shot F 0 0 140 30`.
 - **A mode change leaves the active workspace where it was**, so after
   switching `library-opens-in` from `workspaces` to `desktop` you may be
   sitting on a workspace that is no longer one of ours and see bare wallpaper.
-  `key Super+Page_Up` to the home workspace first, or `stop` + `start`.
-- **Header**: title top-left; Home pill top-right. Header strip region: `0 30 1600 110`.
-- **Library grid**, 2:3 posters: row 1 centres y ≈ 250, row 2 y ≈ 540; columns from
-  x ≈ 105 with a ≈ 170 px pitch (9 columns).
-- **Detail pane**: back button (48, 83); group tabs y ≈ 374 from x ≈ 372; rows from
-  y ≈ 430 in ≈ 54 px steps; Play (177, 562).
-- **The `modal` library** (`library-opens-in` `modal`) pops a panel over the desktop
-  from a section's button — with Dash to Panel, over the bottom panel — the
+  Press the button again, or `stop` + `start`.
+- **Detail pane** (on the surface): Back (48, 83); group tabs y ≈ 374 from
+  x ≈ 372; rows from y ≈ 430 in ≈ 54 px steps; Play (177, 562).
+- **The `menu` library** (`library-opens-in` `menu`): the button opens the
+  overview onto the tabs over the grid, in the app-grid slot. Tabs at
+  y ≈ 127 (TV Shows ≈ x 765, Films ≈ x 846), grid rows centred at y ≈ 320 and
+  570. The tabs switch sections in place — no overview transition — unless
+  another extension's view (Games Menu's) is what is showing there, in which
+  case pressing ours closes the overview and reopens it onto ours.
+- **The `modal` library** (`library-opens-in` `modal`) pops a panel over the
+  desktop out of the button — with Dash to Panel, over the bottom panel — the
   same size and shade as the popup detail below, roughly `210,78` to
-  `1390,800`. `click 20 450` on the shade closes it, as does `key Escape` or a
-  second press of its button; picking an item opens the detail the same way a
-  desktop or menu pick would, per `detail-opens-in`.
-- **Empty library**: a centred placeholder with an Open Settings button — normal
-  until a section has been pointed at a folder and scanned.
+  `1390,800`, tabs at y ≈ 104 (same x as above). `click 20 450` on the shade
+  closes it, as does `key Escape` or a second press of the button; picking an
+  item opens the detail the same way a desktop or menu pick would, per
+  `detail-opens-in`.
+- **Empty section**: its tab shows a centred placeholder with an Open Settings
+  button — normal until that section has been pointed at a folder and
+  scanned.
 
-Switching workspace drops back to that section's library. A slide is over in
-250 ms and a `shot` takes longer than that to fire, so a frame caught mid-slide
-is luck: `wait 0.12` after the click catches its tail end at best.
+Switching workspace drops back to whatever that workspace is showing. A slide
+is over in 250 ms and a `shot` takes longer than that to fire, so a frame
+caught mid-slide is luck: `wait 0.12` after the click catches its tail end at
+best.
 
 `reload` does not recompile the schema; after editing the `.gschema.xml` run
 `glib-compile-schemas src/schemas` and `stop` + `start`. A `say` text must not
@@ -122,32 +133,49 @@ reads as "no change". `logs` hides D-Bus activation and portal chatter; `logs 20
 
 ## Gotchas
 
-- **dconf is shared with the real session, and the nested one can clobber it.** The
-  nested `dconf-service` caches the database at start and rewrites the whole file
-  on its first write, so a setting changed from the real session while a nested
-  shell runs is silently lost once anything in the nested one writes a key.
-  Change settings **before** `start` or **after** `stop`, then re-check with
+- **dconf is shared with the real session, and other projects' nested shells
+  clobber it too.** Every nested shell (this one, Wallpaper Engine's, Media
+  Controls') writes the same real dconf file, and each one's `dconf-service`
+  caches the database at start and rewrites the whole file from that stale
+  cache on its first write — so a setting changed for a test, even one made
+  from a *different* project's nested shell, can silently revert within
+  seconds of this one starting. The fix is a private database, not sharing
+  the real one at all:
+  ```bash
+  printf 'user-db:media_libraries_nested_test\n' > "$S/dconf-profile"
+  # Seed it from the real session once, minus the credentials line:
+  dconf dump /org/gnome/shell/ | grep -v credentials \
+    | DCONF_PROFILE="$S/dconf-profile" dconf load /org/gnome/shell/
+  # Desktop/mutter paths (workspaces, keybindings) the extension also reads:
+  dconf dump /org/gnome/desktop/wm/ \
+    | DCONF_PROFILE="$S/dconf-profile" dconf load /org/gnome/desktop/wm/
+  export DCONF_PROFILE="$S/dconf-profile"   # before every nested.sh call
+  ./scripts/nested.sh start                 # nested.sh passes the env through
+  # ...
+  rm ~/.config/dconf/media_libraries_nested_test   # after `stop`
+  ```
+  A dconf db name must **not** contain a hyphen — it becomes a D-Bus object
+  path, and `media-libraries-nested-test` is not a legal one, hence the
+  underscores above. Re-check what landed with
   `gsettings --schemadir src/schemas list-recursively org.gnome.shell.extensions.media-libraries`.
 - **`start` enables Media Libraries** if dconf doesn't list it — which writes
   `enabled-extensions`, so the real session will load it at the next login too.
-- **The `menu` and `modal` libraries' buttons sit beside Show Apps** (the same
-  buttons; `library-opens-in` chooses what pressing one does). The nested shell loads the
-  real session's extensions, so with Dash to Panel on they are in its bottom
-  panel: Show Apps ≈ (30, 875), then a button per section with items, TV
-  Shows ≈ (90, 875), Films ≈ (150, 875), Photos ≈ (210, 875), Games ≈ (270,
-  875). Without it they are in the overview's dash: Show Apps ≈ (727, 850),
-  TV Shows ≈ (800, 850), Films ≈ (873, 850). `library-opens-in` and `detail-opens-in` are
-  dconf settings, so set them before `start` — or with `run gsettings` to
-  watch a live switch. A `shot` or `click` outside `overview on` dismisses the
-  overview, so wrap any overview walkthrough in `overview on` … `overview off`,
-  and if a run starts with the overview in an unknown state, `overview off`
-  then `overview on` first.
+- **The one button sits beside Show Apps.** The nested shell loads the real
+  session's extensions, so with Dash to Panel on it is in its bottom panel:
+  Show Apps ≈ (30, 875), the library button ≈ (90, 875), tooltip "Videos".
+  Without it they are in the overview's dash, further right and higher up —
+  reshoot rather than trust a remembered coordinate. `library-opens-in` and
+  `detail-opens-in` are dconf settings, so set them before `start` — or with
+  `run gsettings` to watch a live switch. A `shot` or `click` outside
+  `overview on` dismisses the overview, so wrap any overview walkthrough in
+  `overview on` … `overview off`, and if a run starts with the overview in an
+  unknown state, `overview off` then `overview on` first.
 - **`overview on` is a flag, not only a command.** It writes the
   "overview wanted" marker in the run dir and *then* sets `OverviewActive`
   only if it is not already set — so it is also the way to photograph an
-  overview the **extension** opened (a section button pressed from the
-  desktop): `do "overview on" "shot $S/x.png"` marks it wanted and leaves the
-  open overview alone, where a bare `shot` would dismiss it. `run python3
+  overview the **extension** opened (the button pressed from the desktop):
+  `do "overview on" "shot $S/x.png"` marks it wanted and leaves the open
+  overview alone, where a bare `shot` would dismiss it. `run python3
   scripts/nested_driver.py …` carries the same environment as `do` now
   (`NESTED_RUN_DIR` and friends), so the driver called that way sees the flag
   too; before that it silently dismissed the overview in its own screenshot,

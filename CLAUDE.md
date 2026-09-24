@@ -1,20 +1,28 @@
 # Media Libraries
 
-A GNOME Shell extension (UUID `media-libraries@jackt`) that renders a media library —
-TV shows, films, music, photos and games — directly onto the desktop
-wallpaper. No window, no titlebar. Shell versions 48 to 50 (48 and 49 by audit
-against the shell's sources, not by boot — see the compat note in Gotchas).
+A GNOME Shell extension (UUID `media-libraries@jackt`) that renders a video
+library — TV shows and films — directly onto the desktop wallpaper, in the
+overview beside the apps, or in a shell-native panel, depending on a setting.
+No window, no titlebar. Shell versions 48 to 50 (48 and 49 by audit against
+the shell's sources, not by boot — see the compat note in Gotchas).
+
+A sibling extension, **Games Menu** (`games-menu@jackt`,
+`/home/jackt/Projects/Gnome-Extension-Games-Menu`), is the same idea for a
+games library and is meant to run alongside this one — see the coexistence
+note near the end of this file for what that costs each of them.
 
 ## Seeing it
 
-The UI renders onto the desktop wallpaper, not into a window, so a visual change
-can only be verified by looking at it. `make nested` starts a **headless nested
-GNOME Shell**, loads the extension into it, and opens a **live mirror window on the
-real desktop** (a PipeWire screencast of the nested monitor) so the user can watch
-along without logging out. `make preview` screenshots it. It can be clicked
-through (`./scripts/nested.sh click X Y`) to test Home → Library → Detail
-navigation, and `./scripts/nested.sh say "..."` flashes a banner in it
-so the watcher knows what is about to happen.
+The UI renders onto the desktop wallpaper or into shell chrome, not into an
+ordinary window, so a visual change can only be verified by looking at it.
+`make nested` starts a **headless nested GNOME Shell**, loads the extension
+into it, and opens a **live mirror window on the real desktop** (a PipeWire
+screencast of the nested monitor) so the user can watch along without logging
+out. `make preview` screenshots it. It can be clicked through
+(`./scripts/nested.sh click X Y`) to test the button beside Show Apps, the
+tabs it opens between TV Shows and Films, and Library → Detail navigation, and
+`./scripts/nested.sh say "..."` flashes a banner in it so the watcher knows
+what is about to happen.
 
 Read the **`drive-extension` skill** before driving it; it covers the lifecycle and
 the traps. Keep one nested shell up across edits and `reload` into it; `make
@@ -31,27 +39,29 @@ plain copy or symlink, so there is no file list to keep in sync — add a file t
 `src/` and it ships.
 
 A section's identity — its key, its `<prefix>-` settings, its title, its icon and
-the order they appear in — is `SECTIONS` in `lib/library.js`, and nothing else
-restates it: `prefs.js` imports that list and merges in only what its pages say,
-and the scanner takes its folders from the settings rather than from a copy of
-the list. Adding or renaming one is an edit there plus the schema keys.
+the order they appear in — is `SECTIONS` in `lib/library.js` (TV Shows and
+Films, in that order), and nothing else restates it: `prefs.js` imports that
+list and merges in only what its pages say, and the scanner takes its folders
+from the settings rather than from a copy of the list. Adding a third section
+is an edit there plus the schema keys; `library.js` also exports `LIBRARY`,
+the one thing that is not per-section — the button's own title ("Videos") and
+its icon path — read by `libraryButton.js` and nowhere else.
 
 Runtime data: `~/.cache/media-libraries/` — `library.json`, `posters/`, `backdrops/`,
 `metadata/` (one `index.json` of every cached record; the per-item files the
-first release wrote are still read once and folded in), `thumbs/`. The JS never
+first release wrote are still read once and folded in). The JS never
 scrapes; it only reads `library.json` that Python wrote.
 
 **Every artwork path in `library.json` is a file in that cache, already scaled
 to what the desktop ever draws, HiDPI included** (posters 512×768, backdrops
-960×540, thumbs 256×256; `metadata.py POSTER_BOX`/`BACKDROP_BOX`/`THUMB_BOX`
-hold the caps, sized off `mediaGrid.js`'s tile and `detailView.js
-HERO_MAX_HEIGHT`). St decodes a background image at full size on
-the compositor thread and keeps it, so the scanner shrinks on the way in,
-copies a `cover.jpg` it finds beside the media in with the rest, and sweeps
-and prunes the cache on each scan — only when it is writing the shared
-`library.json`, though: a run sent somewhere else with `--out` is merged onto
-that file's sections and would prune artwork the real library still names. The JS treats an art path outside the cache
-as missing.
+960×540; `metadata.py POSTER_BOX`/`BACKDROP_BOX` hold the caps, sized off
+`mediaGrid.js`'s tile and `detailView.js HERO_MAX_HEIGHT`). St decodes a
+background image at full size on the compositor thread and keeps it, so the
+scanner shrinks on the way in, copies a `cover.jpg` it finds beside the media
+in with the rest, and sweeps and prunes the cache on each scan — only when it
+is writing the shared `library.json`, though: a run sent somewhere else with
+`--out` is merged onto that file's sections and would prune artwork the real
+library still names. The JS treats an art path outside the cache as missing.
 
 ## How it fits together
 
@@ -67,9 +77,8 @@ as missing.
    Where a section looks is an **ordered list** of sources,
    `<prefix>-sources`, tried one after another until one comes back with the
    artwork: TV shows can name TVmaze, TMDB and Wikipedia; films TMDB and
-   Wikipedia; albums iTunes; photos nothing at all, since their thumbnails are
-   local. TMDB also yields a backdrop, tagline, runtime and rating, which the
-   detail pane shows. Each section has its own `<prefix>-online` switch as
+   Wikipedia. TMDB also yields a backdrop, tagline, runtime and rating, which
+   the detail pane shows. Each section has its own `<prefix>-online` switch as
    well; there is no global one. Each cache entry records the source that wrote
    it, so a title already answered by one of a section's sources is not fetched
    again, and dropping that source refetches on the next scan. Sections are merged, so rescanning one keeps the others. A section's
@@ -79,27 +88,25 @@ as missing.
    flags are repeatable to match (`--films-path A --films-path B`).
    `<prefix>-path` is the single folder earlier releases kept: the prefs move
    it into the list when they open, and the scanner reads it only while the
-   list is empty. Music
-   and Photos default to the XDG user folders; TV Shows and Films have
-   no default because the Videos folder cannot serve both, so they are off until
-   pointed at a folder (prefs, `dev.sh scan` and the scanner all follow this).
+   list is empty. Neither section has a default folder — the Videos folder
+   cannot serve both TV Shows and Films — so both are off until pointed at one
+   (prefs, `dev.sh scan` and the scanner all follow this).
    An item's `scan_sig` includes its folder's path as well as the tree's
    mtimes: what a match reuses is the file list, every entry of it an absolute
    path, so a drive renamed under an untouched tree must read as changed or
    every file in it is opened where it used to be.
-   Games are the exception — see `src/backend/CLAUDE.md`.
 
    A list entry is a source name with a **credential slot** — `tmdb` is
    `tmdb@1`, `tmdb@2` is a second TMDB key to fall back to when the first is
    rate-limited or has never heard of the title. Slots live in one `credentials`
-   setting (`a{ss}`, fields tab-separated for IGDB's id/secret pair), so the
-   slot TV shows name and the slot films name are *the same key*: edit it on
-   either page and both change. A slot with nothing in it makes the sources
-   that name it skip themselves, which is why TMDB sits unkeyed in the default
-   lists rather than being an error. The scanner reads `credentials` out of
-   GSettings itself under `--from-settings`, so neither the Rescan buttons nor
-   `dev.sh scan` hands it a key; only a standalone run falls back to
-   `$MEDIA_LIBRARIES_TMDB_KEY` / `$MEDIA_LIBRARIES_IGDB_*` for slot 1.
+   setting (`a{ss}`, one value per slot — TMDB is the only source left that
+   needs a key), so the slot TV shows name and the slot films name are *the
+   same key*: edit it on either page and both change. A slot with nothing in
+   it makes the sources that name it skip themselves, which is why TMDB sits
+   unkeyed in the default lists rather than being an error. The scanner reads
+   `credentials` out of GSettings itself under `--from-settings`, so neither
+   the Rescan buttons nor `dev.sh scan` hands it a key; only a standalone run
+   falls back to `$MEDIA_LIBRARIES_TMDB_KEY` for slot 1.
 2. `extension.js` copies `lib/` into `$XDG_RUNTIME_DIR/media-libraries/lib-<stamp>/`
    and imports `app.js` from there, where `<stamp>` is a checksum of `lib/`'s
    file contents (name, size, mtime), not a timestamp of the build. GJS caches
@@ -115,14 +122,15 @@ as missing.
    and only an edit's changed checksum ever builds a new one.
 3. `MediaLibrariesApp` reads `library.json`, builds the surface inside the monitor's
    work area, and attaches it to `Main.layoutManager._backgroundGroup` —
-   rendering over the wallpaper itself. The surface holds the home menu and one
-   **page** per section (a header over a media grid, `mediaGrid.js`), each built
-   once — the enabled ones ahead of time, one to an idle — and kept, so changing
-   section or workspace is a matter of which is visible. The detail pane is
-   shared, and sits in a detail page of its own or moves into the page whose
-   grid it is replacing. A file monitor on `library.json` rebuilds the surface
-   when a rescan lands. All of this is built only when `library-opens-in` or
-   `detail-opens-in` is a surface place — see below.
+   rendering over the wallpaper itself. The surface holds **one library page** —
+   tabs over a grid per section (`libraryView.js` over `mediaGrid.js`), each
+   grid built once, the enabled ones ahead of time one to an idle, and kept, so
+   switching tabs is a matter of which grid is visible — and **one detail
+   page**, a header over the shared pane. The pane sits in the detail page of
+   its own, or moves into the library page when it is replacing the grid. A
+   file monitor on `library.json` rebuilds the surface when a rescan lands.
+   All of this is built only when `library-opens-in` or `detail-opens-in` is a
+   surface place — see below.
 
 **Watched marks** (`lib/tracking.js`, setting `tracking`) are two files of one
 format: `~/.local/share/media-libraries/watched.json`, every mark made on this
@@ -168,12 +176,10 @@ With nothing touched, or everything after it watched, it falls back to the
 scan's own `playLabel` — "Play S01E01". It follows `changed`, which a kept
 position emits too, so it moves on while the pane is up.
 
-Navigation is three levels: the **home menu**, a section's **library** (a grid)
-and the **detail** pane (artwork, facts,
-synopsis, then seasons/tracks/files as tabbed lists, or a thumbnail grid for photo
-albums; a game's list is what there is to know about it — install folder,
-playtime, serial — since a game is one thing to play, not many). Opening an item flies its artwork into the hero slot with a `Clutter.Clone`
-while the grid recedes; back reverses it.
+Navigation is two levels: the **library** (tabs between TV Shows and Films
+over a grid of each) and the **detail** pane (artwork, facts, synopsis, then
+seasons or files as tabbed lists). Opening an item flies its artwork into the
+hero slot with a `Clutter.Clone` while the grid recedes; back reverses it.
 
 **The library grid is the shell's own app grid** (`mediaGrid.js`): a subclass of
 the class `AppDisplay` is built on, holding posters instead of apps, so pages,
@@ -200,6 +206,16 @@ Whatever holds the keyboard is constantly being hidden or destroyed — a tile a
 its grid recedes, a list as the pane is filled — and Clutter drops key focus to
 the stage when that happens, so `app.js` watches `notify::key-focus` and takes
 it back while the surface is what the workspace shows.
+
+The tabs and the grid under them are two different focus groups too — the
+grid is one, as above, and St never walks from one group into another — so
+the one step between them is `libraryView.js`'s own: an arrow up from the
+grid's top row (`atTopRow`) focuses the tabs, and an arrow down from the tabs
+focuses the grid's first tile. Landing on a tab at all, however it got there,
+chooses it (`key-focus-in`), which is what lets a remote with nothing but
+arrows switch between TV Shows and Films. This is the only place a key is
+looked at outside `app.js`'s own `_onKeyPress` and the bound-key handling
+below.
 
 **Remotes and controllers are the keyboard too** (`lib/controls.js`, the
 actions in `lib/actions.js`, the Controls page in the prefs). Ten actions —
@@ -235,86 +251,99 @@ the pane landing on the same workspace, which is what makes a pick a hero
 flight *in place of* the grid rather than a move to somewhere else.
 
 `desktop` and `workspaces` are the two **surface** places: the library drawn
-on the wallpaper under a **home menu** of launchers (`homeView.js`), one
-launcher per enabled section, on the workspace `workspace-index` names. They
-differ only in where what you open lands. In `desktop` every section shares
-that one workspace and the pages simply swap; in `workspaces` opening a
-section claims the trailing empty workspace for it and slides to it, the
-header's Home button slides back and gives it up, and swiping away leaves it
-open with a dot under its launcher. `detail-opens-in` `workspaces` claims one
-for the pane the same way. Claimed workspaces are held as `Meta.Workspace`
-objects, not indices, because indices shift as others close; GNOME's dynamic
-workspaces would collapse the empty ones, so `app.js` marks them with the same
-`_keepAliveId` the shell's workspace tracker uses during drag-and-drop, and
-releases them when the thing that claimed one goes back, and on disable. The
-`desktop` place runs none of that: it is the same surface with the workspace
-layer bypassed, which is why it is also the mode with the least private API
-under it.
+on the wallpaper, brought up by the one button beside Show Apps and put away
+by it again — Escape or the library header's own close button do the same.
+They differ only in where what you open lands, and there is no home menu:
+`desktop` draws nothing at all until the button is pressed. In `desktop` the
+library then appears on the wallpaper of whichever workspace the button was
+pressed on, following a press on another workspace rather than opening a
+second copy; it claims no workspace of its own (`_libraryWorkspace` is just
+"the workspace it is currently on"), though that one is held open while the
+library is up on it, like everything below. In `workspaces` the button claims the
+trailing empty workspace for the library and slides to it; closing it slides
+back to the workspace it was opened from and gives the claimed one up.
+`detail-opens-in` `workspaces` claims one for the pane the same way, on top of
+whichever of the two the library is using. Either way, the workspace the
+library (or the pane) was opened *from* is held open while it is away —
+`app.js` `_holdWorkspaces()`, called after anything that changes what is
+claimed — so a desktop left empty for the library is not folded away behind
+it and there is always somewhere for Back or the close button to land.
+Claimed workspaces are held as `Meta.Workspace` objects, not indices, because
+indices shift as others close; GNOME's dynamic workspaces would collapse the
+empty ones, so `app.js` marks every workspace it is holding — claimed or just
+kept open — with the same `_keepAliveId` the shell's workspace tracker uses
+during drag-and-drop, and releases it once nothing needs it any more, and on
+disable. The `desktop` place claims nothing for the library itself — it only
+holds open a workspace that was already there — which is why it is also the
+mode with the least private API under it.
 
-The surface is built when *either* setting is a surface place. It holds the
-home menu, one page per section — a header over a grid — and **one detail
-page**, a header over the shared pane, which is what a pick gets whenever it
-is not taking a grid's place; its header is retitled per pick, since there is
-one pane and one pick. That separation is what lets a section's workspace and
-the pane's workspace show different things at once, which the overview's
-previews clone side by side.
+The surface is built when *either* setting is a surface place. It holds **one
+library page** — the tabs over a grid per section, `libraryView.js` — and
+**one detail page**, a header over the shared pane, which is what a pick gets
+whenever it is not taking the grid's place; its header is retitled per pick,
+since there is one pane and one pick. That separation is what lets the
+library's workspace and the pane's workspace show different things at once,
+which the overview's previews clone side by side.
 
-What the surface shows is two pieces of state, not one: `_place` is what it is
-set to show and survives a rebuild, `_shown` is what is actually on the stack
-and does not. They differ exactly across a rebuild, which is why
-`_onWorkspaceChanged` compares against `_shown` — comparing against the
-remembered place left the surface blank after a rescan or a settings change.
+What the surface shows is two pieces of state, not one: `_placeForWorkspace()`
+is worked out fresh each time from what survives a rebuild — `_libraryWorkspace`,
+`_detailWorkspace`, `_picked`, `_origin`, none of which `_teardown` touches —
+while `_shown` is what is actually on the stack, and does not survive one: a
+rebuild empties the stack without changing what a workspace is set to show.
+They differ exactly across a rebuild, which is why `_onWorkspaceChanged`
+compares the computed place against `_shown` — comparing it against itself
+left the surface blank after a rescan or a settings change.
 
 `menu` and `modal` are the two places **outside** the surface, and a library
-in either is browsed by a *browser* of its own, opened from buttons made as
-Show Apps is and put beside it (in the dash, or in Dash to Panel's panel).
-`sectionButtons.js` builds those buttons — a `Dash.ShowAppsIcon` subclass for
-its icon and label — and both places open from them. Those
-buttons (and the section's shortcut, below, which presses them) are the only
-way in, and they behave as a dock's Show Apps does:
-pressed on the desktop they open the overview themselves, so a second press or
-Escape closes it again and lands on the desktop; pressed with the overview
-already up, back to the window picker. Every way out of an overview a button
-of ours opened goes all the way down, Show Apps included: a dock keeps a
-`forcedOverview` flag of its own that ours never sets, so an overview left
-standing settled on the window picker and every Show Apps press after that
-came back there instead of to the desktop. And a switch — Films pressed with
-TV Shows up — closes the overview and opens it again onto the new section,
-two of the shell's own transitions rather than a swap of grids inside one.
-Show Apps itself is left alone — it leaves the grid as it always has, and the
-grid shows the apps again next time because a browser only lives as long as
-the grid is up. A rebuild (a setting
-changing, a rescan landing) tears the browser down and makes another, and puts
-back the section that was showing (`state`/`restore` on the browser), so the
-change shows where it is being looked for rather than on the next press — a
-`columns` change used to leave the overview on the app grid.
+in either is browsed by a *browser* of its own — `MediaMenu` or
+`LibraryWindow`, both holding one `LibraryView` — opened from the one button
+made as Show Apps is and put beside it (in the dash, or in Dash to Panel's
+panel). `libraryButton.js` builds that button — a `Dash.ShowAppsIcon`
+subclass for its icon and label — and both places open from it. The button
+(and `library-shortcut`, below, which presses it) is the only way in, and it
+behaves as a dock's Show Apps does: pressed on the desktop it opens the
+overview itself, so a second press or Escape closes it again and lands on the
+desktop; pressed with the overview already up, back to the window picker.
+Every way out of an overview it opened goes all the way down, Show Apps
+included: a dock keeps a `forcedOverview` flag of its own that ours never
+sets, so an overview left standing settled on the window picker and every
+Show Apps press after that came back there instead of to the desktop. Show
+Apps itself is left alone — it leaves the grid as it always has, and the grid
+shows the apps again next time because a browser only lives as long as the
+grid is up. Switching sections is the tabs moving *in place* — no overview
+transition — except when another extension's view is showing in the same
+slot (Games Menu's own), where opening ours closes the overview and reopens
+it rather than drawing over what is there (`mediaMenu.js` `open()`, the
+`_next` field). A rebuild (a setting changing, a rescan landing) tears the
+browser down and makes another, and puts back the tab that was showing
+(`state`/`restore` on the browser), so the change shows where it is being
+looked for rather than on the next press — a `columns` change used to leave
+the overview on the app grid.
 
-**Each section has a keyboard shortcut**, `<prefix>-shortcut` (`as`, empty by
-default so nothing of the system's is taken), grabbed with
-`Main.wm.addKeybinding` the way the shell grabs its own — mutter follows the
-setting, so one set in the preferences works at once, and it is not listed in
-GNOME Settings. A press is the section's button wherever the library opens
-(`app.js` `_onShortcut`): `toggle` on a browser, and on the surface the
-launcher from anywhere, with a second press going Home. It is grabbed in
-`POPUP` mode too, but only so the modal library's own panel can be closed or
-switched with it; over any other popup it does nothing. The preferences set it
-the way GNOME Settings does (`prefs.js` `_captureShortcut`): system shortcuts
-are inhibited while the dialog listens — the shell asks once whether the
-Extensions app may — and a key the window manager, the shell, the media keys, a
-custom shortcut or another section already has is refused, not taken over.
+**One keyboard shortcut**, `library-shortcut` (`as`, empty by default so
+nothing of the system's is taken), is grabbed with `Main.wm.addKeybinding`
+the way the shell grabs its own — mutter follows the setting, so one set in
+the preferences works at once, and it is not listed in GNOME Settings. A
+press is the button's press wherever the library opens (`app.js`
+`_onShortcut`): `toggle` on a browser, and on the surface the library from
+anywhere, with a second press closing it. It is grabbed in `POPUP` mode too,
+but only so the modal library's own panel can be closed or switched with it;
+over any other popup it does nothing. The preferences set it the way GNOME
+Settings does (`prefs.js` `_captureShortcut`): system shortcuts are inhibited
+while the dialog listens — the shell asks once whether the Extensions app may
+— and a key the window manager, the shell or the media keys already has is
+refused, not taken over.
 
-In the **`menu` library** `mediaMenu.js` puts a grid per section into the
-overview's app-grid slot. In the **`modal` library** (`libraryWindow.js`) a
-section's grid goes inside the folder's panel (`panel.js`) instead — pressing
-a section's button zooms that panel, holding a `MediaView` for the section,
-out of the button, exactly as the shell zooms an app folder's panel out of its
-icon; a second press, Escape, or a click on the shade closes it, and the panel
-dies the moment the button it came from unmaps (the overview closing, on stock
-GNOME). One panel serves every section — switching sections swaps which grid
-it shows rather than building a second panel. With the library in either of
-these and the pane popping up too, nothing of ours is drawn on the wallpaper
-at all and no surface is built. Every place draws a poster with `createArtwork`
-(`widgets.js`); only what holds it differs.
+In the **`menu` library** `mediaMenu.js` puts the tabs and their grids into
+the overview's app-grid slot. In the **`modal` library** (`libraryWindow.js`)
+they go inside the folder's panel (`panel.js`) instead — pressing the button
+zooms that panel, holding one `LibraryView`, out of the button, exactly as
+the shell zooms an app folder's panel out of its icon; a second press,
+Escape, or a click on the shade closes it, and the panel dies the moment the
+button it came from unmaps (the overview closing, on stock GNOME). With the
+library in either of these and the pane popping up too, nothing of ours is
+drawn on the wallpaper at all and no surface is built. Every place draws a
+poster with `createArtwork` (`widgets.js`); only what holds it differs.
 
 `detail-opens-in` `menu` pops the pane up the way the shell opens an app
 folder (`detailDialog.js`, built on `panel.js` — the same `AppFolderDialog`
@@ -391,20 +420,19 @@ shown.
 
 Neither the overview nor the slide between workspaces shows the desktop at all
 — each builds its own wallpaper actor per workspace — so `overviewPreview.js`
-puts a `Clutter.Clone` of the live page (or the home menu) into every picture
+puts a `Clutter.Clone` of the live library or detail page into every picture
 the shell makes of one of our workspaces: the overview's previews, the
 thumbnails in its strip, and the strip the slide animates, which is why the
 library travels with its workspace. Nothing is built for any of them; the
 clones die with the shell's own actors. A clone paints a hidden source, but
-lays it out at the size it *asks* for, so the home menu and the pages are
-sized outright.
+lays it out at the size it *asks* for, so the pages are sized outright.
 
 Everything that runs in `app.js` and below runs **inside the compositor**, so a
 long synchronous block is a dropped frame for the whole desktop. Two rules come
 out of that. **Nothing builds an actor per thing you own**: the detail lists
 fill through `lazyList.js` as they scroll, and a grid builds the pages within
-reach of the one showing, so a section of thousands or a photo album of
-thousands costs a screenful either way. **And nothing is built on a frame that
+reach of the one showing, so a section of thousands costs a screenful either
+way. **And nothing is built on a frame that
 is animating**: the detail pane puts up its artwork alone and builds its second
 column on the next idle, so the flight or the zoom that opened it has the first
 frames to itself — and the group list, the one piece that runs to a couple of
@@ -421,10 +449,11 @@ up in that, rather than a blocking `file_test` per poster.
   is what Media Libraries uses: the app grid for a library, `AppViewItem` and
   `overview-tile` for a tile, `icon-button` and `button` for the header and the
   actions, `global.focus_manager` for the keyboard, the dash's own
-  `DashItemContainer` for the section buttons. Before writing a widget, look for
-  the shell's — the extension should be the media, the surface it is drawn on
-  and the few shapes GNOME has no equivalent for (the launcher card, the detail
-  pane, the rows), and nothing else.
+  `DashItemContainer` for the library's button, `AppFolderDialog` for a pop-up
+  pane and the `modal` library's panel. Before writing a widget, look for the
+  shell's — the extension should be the media, the surface it is drawn on and
+  the few shapes GNOME has no equivalent for (the tab bar, the detail pane, the
+  rows), and nothing else.
 - **Motion copies the shell.** `anim.js` holds the only durations and curves in
   use: 120 ms for hover and things leaving, 200 ms ease-out-quad for the rest,
   260 ms for the hero flight. Don't invent new ones; `actor.ease()` already
@@ -432,7 +461,7 @@ up in that, rather than a blocking `file_test` per poster.
   the shell's slide and nothing else: no reveal of our own is queued behind it.
 - **Corners come from one radius.** `corner-radius` (a setting, default 18px) is
   the only radius in the design; `shape.js` scales it into the handful the views
-  need — artwork (thumbnails and rows share it), hero, pane, launcher, badge — and every rounded
+  need — artwork (posters and rows share it), hero, pane, badge — and every rounded
   surface sets it inline as it is built. The stylesheet's `border-radius` values
   are fallbacks that match the default; change `shape.js`, not them. Pills stay
   `9999px` and are not scaled. The one exception to "one radius" is a surface
@@ -453,7 +482,7 @@ up in that, rather than a blocking `file_test` per poster.
   slack as one gap on the far side. The page dots keep their room on a one-page section — the
   shell hides them for a single page and the grid re-centred seven pixels
   lower — so every section's rows land on the same lines. The hero artwork under it
-  has a floor of one thumbnail (`detailView.js` `THUMB_SIZE`, 132 logical px):
+  has a floor of its own (`detailView.js` `HERO_MIN`, 132 logical px):
   on a small work area the smallest `detail-size` leaves less room than the
   buttons beneath the artwork take, and without the floor the hero came out at
   nothing — so the panel shrinks, the artwork does not vanish. There is no
@@ -489,9 +518,10 @@ up in that, rather than a blocking `file_test` per poster.
   random rather than absent.
 - **Never give an image-backed widget a `box-shadow`.** St draws that shadow as
   a square box, ignoring the radius: clipped, it shows as dark rings in the
-  rounded corners; unclipped, as a dark container behind the artwork. A surface
-  that wants both (the home launchers) casts the shadow from a plain rounded
-  card and carries the image on a child layer.
+  rounded corners; unclipped, as a dark container behind the artwork (and, in
+  a grid, a band merging one row's shadows into the next). A surface that
+  wants both would need to cast the shadow from a plain rounded card and carry
+  the image on a child layer.
 - **St CSS is not web CSS.** No flexbox, grid, `calc()`, CSS variables or
   `linear-gradient()` (use `background-gradient-direction/start/end`). Layout is
   done in JS (`St.BoxLayout`, `Clutter.BinLayout`); the stylesheet is for paint
@@ -514,10 +544,10 @@ up in that, rather than a blocking `file_test` per poster.
   the shell's `ControlsManagerLayout.vfunc_allocate` divides up is already inset
   by the top bar and by whatever else is reserved — Dash to Panel's panel, 48px
   of it — so anything that works out one of its boxes ahead of the shell
-  (`mediaMenu.js` `_slotSize`, for a section button pressed before the overview
+  (`mediaMenu.js` `_slotSize`, for the button pressed before the overview
   has ever been shown) must start from `getWorkAreaForMonitor`, and must measure
   the dash whether or not it is *visible*, as the shell does. Getting either
-  wrong left the first section's grid built against a taller box than every
+  wrong left the first tab's grid built against a taller box than every
   later one, which is a different cover size for the same `columns`. The box the
   views standing were built for is kept either way, and they are all dropped and
   built again when it moves.
@@ -528,8 +558,8 @@ up in that, rather than a blocking `file_test` per poster.
 - **Hover on a tile is crossing events, not `track_hover`.** The `hover`
   pseudo-class restyles a widget and all its children on every enter and
   leave; across a grid that is the cost of a hover. Only the few widgets that
-  paint something from `:hover` (launchers, rows) track it, and no rule keys a
-  descendant off a parent's `:hover`.
+  paint something from `:hover` (the tabs, the detail list's rows) track it,
+  and no rule keys a descendant off a parent's `:hover`.
 - **`_backgroundGroup` and `_keepAliveId` are private API**, and so is every
   path `overviewPreview.js` walks to reach the overview's previews
   (`controls._workspacesDisplay._workspacesViews`, a workspace's `_background`
@@ -540,21 +570,22 @@ up in that, rather than a blocking `file_test` per poster.
   `menu` library adds `controls._stateAdjustment`, `_workspacesDisplay`, `_searchController`,
   the layout's `_getAppDisplayBoxForState` (wrapped, and unwrapped on
   disable), `appDisplay._box`, and `BaseAppView`, which the shell does not
-  export and is reached as `AppDisplay`'s prototype. `sectionButtons.js` adds
+  export and is reached as `AppDisplay`'s prototype. `libraryButton.js` adds
   `global.dashToPanel.panels` and its `panels-created` signal (Dash to Panel's
-  own, not the shell's, used to re-attach the section buttons when it rebuilds
-  its panels) and `Dash.ShowAppsIcon` (exported, but its `_createIcon` and
+  own, not the shell's, used to re-attach the button when it rebuilds its
+  panels) and `Dash.ShowAppsIcon` (exported, but its `_createIcon` and
   `_iconActor` are private shape the subclass fills in). `panel.js`
   `folderLook()` adds `appDisplay._folderIcons`, the `_dialog` each of them
   keeps and its `_viewBox`, read only to see what this desktop puts behind an open folder; it
   finds nothing on a desktop with no folders, and a shade is what it falls back
   to, so this one fails soft. If
-  rendering breaks after a GNOME upgrade look at the first; if section
-  workspaces start collapsing, at the second (`_applyWorkspaceMode` in
-  `app.js`); if the overview goes empty again, or the slide goes back to bare
-  wallpaper, at the third; if the section buttons stop appearing beside Show
-  Apps after a GNOME or Dash to Panel upgrade, at the fourth; if the popup
-  starts shading a desktop whose folders do not, at the fifth.
+  rendering breaks after a GNOME upgrade look at the first; if a held-open
+  workspace starts collapsing under the library or the pane, at the second
+  (`_holdWorkspaces`/`_keepOnly` in `app.js`); if the overview goes empty
+  again, or the slide goes back to bare wallpaper, at the third; if the
+  button stops appearing beside Show Apps after a GNOME or Dash to Panel
+  upgrade, at the fourth; if the popup starts shading a desktop whose folders
+  do not, at the fifth.
 - **"Is the app grid up?" is `dash.showAppsButton.checked`, never
   `appDisplay.visible`.** The shell holds the app display visible for the whole
   slide down to the window picker (`_updateAppDisplayVisibility` takes the
@@ -629,7 +660,7 @@ up in that, rather than a blocking `file_test` per poster.
   must **not** be scaled — St scales CSS itself, so scaling it twice doubles it
   on HiDPI. `St.Icon.icon_size` is the one exception in the allocation
   direction: it is logical, so a size derived from physical px is *divided* by
-  the scale factor, not multiplied (`widgets.js` `createArtwork`/`createLauncher`).
+  the scale factor, not multiplied (`widgets.js` `createArtwork`).
 - **The staged `lib/` copy survives a screen unlock, not just a reload.**
   `extension.js` names the staging directory after a checksum of `lib/`'s file
   contents (name, size, mtime), not the time it was built, so re-enabling after
@@ -638,3 +669,33 @@ up in that, rather than a blocking `file_test` per poster.
   copying and building again. Only an actual edit — which changes the checksum
   — makes a new stage; the sweep on the next `enable()` removes whatever stage
   is no longer current.
+
+## Coexisting with Games Menu
+
+Games Menu (`games-menu@jackt`) is built the same way — the same shell classes
+subclassed, the same folder-dialog and app-grid shapes borrowed — and the two
+run enabled at once on one machine, so nothing about how this extension
+reaches into the shell may assume it is the only one doing so. What keeps them
+apart: every `GObject.registerClass`'d class here is named `MediaLibraries*`
+(`MediaLibrariesLibraryIcon`, `MediaLibrariesMediaView`, …), never the bare
+shell name, so the two extensions' subclasses of the same shell class do not
+collide as GTypes; every stylesheet class is `ml-`-prefixed and every borrowed
+constant of the folder look is namespaced too (`panel.js`'s `BLUR` is
+`media-libraries-panel-blur`, not Games Menu's own `games-menu-panel-blur`).
+Both wrap the same shell internals — Dash to Panel's
+`_updateGroupedElements`, the overview layout's `_getAppDisplayBoxForState` —
+chain-safely: call through to whatever was there first, and on the way out
+restore that (not delete the property) only if the wrap is still the
+outermost one, so whichever of the two wrapped second unwraps cleanly without
+taking the other's wrap down with it (`libraryButton.js` `_attachToPanel`,
+`mediaMenu.js` `_foldWorkspaces`). A wrap left in the other's chain after a
+disable goes inert, and the slot the menu measures for its next view is asked
+of the shell's own method rather than of the wrap beneath it, which the other
+may have grown for a view of its own. In the `menu` library, a button of ours
+pressed while Games Menu's view is showing in the overview's app-grid slot
+closes the overview and reopens it onto ours, rather than drawing over
+what is there — and Games Menu does the same in reverse — which is the one
+place either extension reads what the other put there (`mediaMenu.js`
+`open()`, the `_next` field). And the Home action's own default binding
+differs between the two (`keys-home`/`pad-home` in each schema), so a remote
+or controller's Home button, out of the box, drives only one of them.

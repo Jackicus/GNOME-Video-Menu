@@ -1394,11 +1394,13 @@ export class MediaLibrariesApp {
     // Key focus has gone somewhere: if it went nowhere at all, and the surface
     // is what the workspace shows, it is ours to take back. Focus that has
     // gone to another actor — a menu, the panel — is left where it is, and
-    // so is the keyboard while the popup holds it.
+    // so is the keyboard while anything holds a grab: our popup, or another
+    // extension's panel over the surface (Games Menu's), whose own focus can
+    // drop to the stage as what had it inside is destroyed.
     _onStageFocusChanged() {
         if (!this._container)
             return;
-        if (Main.overview.visible || this._dialog?.isOpen || global.stage.get_key_focus())
+        if (Main.overview.visible || Main.modalCount > 0 || global.stage.get_key_focus())
             return;
         this._syncKeyFocus(this._onTarget());
     }

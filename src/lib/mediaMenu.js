@@ -192,11 +192,20 @@ export class MediaMenu {
         // when it was there first, or nothing, for the prototype's.
         this._stockBox = Object.hasOwn(layout, '_getAppDisplayBoxForState') ? stock : null;
         // Six arguments since GNOME 47; five before.
-        this._foldedBox = layout._getAppDisplayBoxForState = function (state, box, searchHeight, dashHeight, workspacesBox, spacing) {
+        const folded = function (state, box, searchHeight, dashHeight, workspacesBox, spacing) {
             const slot = stock.call(this, state, box, searchHeight, dashHeight, workspacesBox, spacing);
-            // The folded slot, measured by the shell's own layout, for the
-            // next time the view has to be built before it is ever allocated.
-            menu._slot = [slot.get_width(), slot.get_height() + workspacesBox.get_height() + spacing];
+            // Left in someone else's chain after a disable, it does nothing.
+            if (menu._foldedBox !== folded)
+                return slot;
+            // The folded slot, for the next time the view has to be built
+            // before it is ever allocated — measured by the shell's own
+            // method rather than taken from `stock`, which can be another
+            // extension's wrap that has already grown the slot for a view of
+            // its own (Games Menu folds the same row).
+            const own = Object.getPrototypeOf(this)._getAppDisplayBoxForState;
+            const shell = own && own !== stock
+                ? own.call(this, state, box, searchHeight, dashHeight, workspacesBox, spacing) : slot;
+            menu._slot = [shell.get_width(), shell.get_height() + workspacesBox.get_height() + spacing];
             if (!menu._showing)
                 return slot;
             // The same size in every state, as the shell has it, so the slide
@@ -208,6 +217,7 @@ export class MediaMenu {
             slot.set_size(width, height + extra);
             return slot;
         };
+        this._foldedBox = layout._getAppDisplayBoxForState = folded;
     }
 
     // How far the row of workspaces is folded away follows the overview's own

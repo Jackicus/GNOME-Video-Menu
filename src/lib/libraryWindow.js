@@ -24,7 +24,7 @@ import {MediaPanel} from './panel.js';
 // came from, Escape, or a click away, so its header is the tabs alone.
 const LibraryPanel = GObject.registerClass(
 class MediaLibrariesLibraryPanel extends MediaPanel {
-    _init({sections, itemsFor, columns, rows, onActivate, onSwitch}) {
+    _init({sections, itemsFor, columns, rows, onActivate, onSwitch, onOpenSettings}) {
         // The folder's own behaviour: the panel goes when the button it came
         // out of unmaps, which is what closes it with the overview.
         super._init({dieWithSource: true});
@@ -35,6 +35,7 @@ class MediaLibrariesLibraryPanel extends MediaPanel {
         this._rows = rows;
         this._onActivate = onActivate;
         this._onSwitch = onSwitch;
+        this._onOpenSettings = onOpenSettings;
         this._library = null;
         // The budget the view was built for. Not `_budget`, which is the
         // host's method for working it out.
@@ -75,6 +76,7 @@ class MediaLibrariesLibraryPanel extends MediaPanel {
                 rows: this._rows,
                 onActivate: this._onActivate,
                 onSwitch: this._onSwitch,
+                onOpenSettings: this._onOpenSettings,
             });
             this._panel.add_child(this._library.actor);
         }
@@ -109,7 +111,7 @@ export class LibraryWindow {
     // `button` is the library's button beside Show Apps, which the app holds
     // and hands to whichever place the library opens in; `onSwitch` hears of
     // a tab chosen here.
-    constructor({sections, itemsFor, onActivate, columns, rows, button, onSwitch}) {
+    constructor({sections, itemsFor, onActivate, columns, rows, button, onSwitch, onOpenSettings}) {
         this._sections = sections;
         this._itemsFor = itemsFor;
         this._onActivate = onActivate;
@@ -117,6 +119,7 @@ export class LibraryWindow {
         this._rows = rows;
         this._button = button;
         this._onSwitch = onSwitch;
+        this._onOpenSettings = onOpenSettings;
         this._panel = null;
         this._key = sections[0]?.key ?? null;
     }
@@ -158,6 +161,7 @@ export class LibraryWindow {
                     this._key = tab;
                     this._onSwitch?.(tab);
                 },
+                onOpenSettings: this._onOpenSettings,
             });
             // However it closes — Escape, the shade, the button unmapping
             // with the overview — the button is no longer lit.

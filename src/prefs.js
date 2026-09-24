@@ -211,7 +211,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             return group;
         };
         const modes = toggles();
-        const viewRow = new Adw.ActionRow({title: 'Libraries open in'});
+        const viewRow = new Adw.ActionRow({title: 'Library opens in'});
         viewRow.add_suffix(modes);
         view.add(viewRow);
 
@@ -829,8 +829,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
 
         page.add(this._sourcesGroup(state, section));
 
-        if (openCommandKey(section))
-            page.add(this._openerGroup(state, section));
+        page.add(this._openerGroup(state, section));
 
         const library = new Adw.PreferencesGroup({title: 'Library'});
         page.add(library);
