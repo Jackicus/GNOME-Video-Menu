@@ -25,7 +25,6 @@
 .ml-header {
     height: 52px;
     margin-bottom: 24px;
-    spacing: 16px;
 }
 
 .ml-header-titles {
@@ -45,64 +44,58 @@
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.6);
 }
 
-/* ---- Home menu --------------------------------------------------------- */
-
-.ml-home-title {
-    font-size: 2.32em;
-    font-weight: 800;
-    color: #fafafb;
-    text-shadow: 0px 1px 4px rgba(0, 0, 0, 0.6);
+/* The header is a bin (widgets.js createHeader): what is at its start and at
+ * its end are rows of their own, either side of the tabs. */
+.ml-header-start {
+    spacing: 16px;
 }
 
-.ml-home-subtitle {
-    margin-top: 4px;
-    margin-bottom: 16px;
-    font-size: 0.95em;
-    color: rgba(250, 250, 251, 0.7);
-    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.6);
+.ml-header-end {
+    spacing: 8px;
 }
 
-/* The launcher itself is the shell's raised folder tile (.app-folder), which
- * brings the card, the shadow and the hover, focus and pressed states; only
- * the artwork wash inside it is ours. */
-.ml-launcher-card {
-    border-radius: 32px;
+/* ---- Tabs -------------------------------------------------------------- */
+
+/* The switch between the libraries: the shape of the shell's own
+ * screenshot/screencast switch (.screenshot-ui-shot-cast-container and
+ * -button, _screenshot.scss), with words in it, the lit tab in the accent and
+ * the pill on the shell's dark neutral so it reads over any wallpaper. */
+.ml-tabs {
+    background-color: rgba(34, 34, 38, 0.7);
+    border: 1px solid rgba(250, 250, 251, 0.08);
+    border-radius: 9999px;
+    padding: 3px;
+    spacing: 3px;
 }
 
-/* Over the section's artwork: accent at the top, settling into the shell's
- * neutral, translucent enough that the artwork still gives each card its own
- * character. */
-.ml-launcher-veil {
-    border-radius: 32px;
-    border: 1px solid rgba(250, 250, 251, 0.12);
-    background-gradient-direction: vertical;
-    background-gradient-start: st-transparentize(st-mix(-st-accent-color, #222226, 25%), 0.4);
-    background-gradient-end: st-transparentize(st-mix(-st-accent-color, #222226, 10%), 0.1);
-}
-
-.ml-launcher-veil-plain {
-    background-gradient-start: st-mix(-st-accent-color, #222226, 55%);
-    background-gradient-end: st-mix(-st-accent-color, #222226, 15%);
-}
-
-.ml-launcher-icon {
-    color: -st-accent-fg-color;
-    icon-shadow: 0px 2px 8px rgba(0, 0, 0, 0.45);
-}
-
-.ml-launcher-title {
-    margin-top: 14px;
-    font-size: 1.02em;
+.ml-tab {
+    border-radius: 9999px;
+    padding: 6px 18px;
+    font-size: 1.09em;
     font-weight: bold;
-    color: #fafafb;
-    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+    color: rgba(250, 250, 251, 0.75);
+    transition-duration: 120ms;
 }
 
-.ml-launcher-subtitle {
-    margin-top: 1px;
-    font-size: 0.82em;
-    color: rgba(250, 250, 251, 0.6);
-    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7);
+.ml-tab:hover {
+    background-color: rgba(250, 250, 251, 0.1);
+    color: #fafafb;
+}
+
+/* The shell's own focus ring, inset as its toggle buttons have it, so a
+ * remote's arrows can be followed along the tabs. */
+.ml-tab:focus {
+    color: #fafafb;
+    box-shadow: inset 0 0 0 2px st-transparentize(st-mix(-st-accent-color, #ffffff, 60%), 0.2);
+}
+
+.ml-tab:checked {
+    background-color: -st-accent-color;
+    color: -st-accent-fg-color;
+}
+
+.ml-tab:checked:hover {
+    background-color: st-lighten(-st-accent-color, 5%);
 }
 
 /* ---- Library grid ------------------------------------------------------ */

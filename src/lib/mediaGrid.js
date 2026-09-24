@@ -319,7 +319,8 @@ class MediaLibrariesMediaView extends BaseAppView {
         this._section = section;
         this._data = items;
         this._onActivate = onActivate;
-        this._perPage = pendingGrid.rows * pendingGrid.columns;
+        this._columns = pendingGrid.columns;
+        this._perPage = pendingGrid.rows * this._columns;
         this._media = [];
         this._byId = new Map();
         this._fillTo(0);
@@ -373,6 +374,13 @@ class MediaLibrariesMediaView extends BaseAppView {
         const item = this._media[this._shownPage() * this._perPage] ?? this._media[0];
         item?.grab_key_focus();
         return !!item;
+    }
+
+    // Whether `actor` is a tile on the top row of its page: an arrow up from
+    // there has nowhere in the grid to go, and leaves it for the tabs above.
+    atTopRow(actor) {
+        const order = this._media.indexOf(actor);
+        return order >= 0 && order % this._perPage < this._columns;
     }
 
     // Which page is showing is the scroll adjustment's answer, not the

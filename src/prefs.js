@@ -75,6 +75,9 @@ const PAGES = {
 
 const SECTIONS = LIBRARY_SECTIONS.map(section => ({...section, ...PAGES[section.key]}));
 
+// The one shortcut: the library's button, pressed from the keyboard.
+const SHORTCUT_KEY = 'library-shortcut';
+
 // Where the system's own shortcuts are kept, for a new one to be checked
 // against: the window manager's, the shell's, mutter's and the media keys,
 // whose `custom-keybindings` also lists the ones made in GNOME Settings.
@@ -224,26 +227,15 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         settings.bind('play-on-new-workspace', playRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         view.add(playRow);
 
-        page.add(this._shortcutsGroup(state));
-
-        const desktop = new Adw.PreferencesGroup({title: 'Desktop'});
-        page.add(desktop);
-
-        const workspace = new Adw.SpinRow({
-            title: 'Workspace',
-            subtitle: 'The workspace that carries the home menu',
-            adjustment: new Gtk.Adjustment({lower: 1, upper: 16, step_increment: 1, value: settings.get_int('workspace-index') + 1}),
-        });
-        workspace.connect('changed', () => settings.set_int('workspace-index', Math.round(workspace.get_value()) - 1));
-        desktop.add(workspace);
-
         // Shown for whichever of the two is set to claim one.
         const workspaces = new Adw.ActionRow({
             title: 'Workspaces Media Libraries is using stay open',
-            subtitle: 'A workspace opened for a section or for a picked item is held until you go back from it, so GNOME does not fold it away. With a fixed number of workspaces, set enough in Settings → Multitasking.',
+            subtitle: 'A workspace opened for the library or for a picked item is held until you close it or go back from it, so GNOME does not fold it away. With a fixed number of workspaces, set enough in Settings → Multitasking.',
             sensitive: false,
         });
-        desktop.add(workspaces);
+        view.add(workspaces);
+
+        page.add(this._shortcutsGroup(state));
 
         const appearance = new Adw.PreferencesGroup({title: 'Appearance'});
         page.add(appearance);
@@ -319,10 +311,10 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         appearance.add(detailSizeRow);
 
         const VIEWS = {
-            desktop: 'Drawn straight onto the wallpaper, with a home menu of launchers. Every section shares the one workspace.',
-            workspaces: 'Drawn straight onto the wallpaper, with a home menu of launchers. Each section you open gets a workspace of its own.',
-            menu: 'A grid for each section in the overview, beside your applications, opened from the buttons next to Show Apps.',
-            modal: 'A panel over the desktop, opened from the same buttons next to Show Apps. Escape, a click away, or the button again closes it.',
+            desktop: 'Drawn straight onto the wallpaper of the workspace you are on, brought up by the button next to Show Apps and put away by it, Escape or its close button.',
+            workspaces: 'Drawn straight onto the wallpaper of a workspace of its own, slid to by the button next to Show Apps and given up again when you close it.',
+            menu: 'In the overview, beside your applications, opened from the button next to Show Apps.',
+            modal: 'A panel over the desktop, opened from the button next to Show Apps. Escape, a click away, or the button again closes it.',
         };
         const DETAILS = {
             desktop: 'What you pick opens on the workspace you are already on.',
@@ -340,11 +332,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                 details.active_name = detail;
             // Under the heading, not in the rows, where it would squeeze the toggles.
             view.description = `${VIEWS[mode]} ${DETAILS[detail]}`;
-            // The home menu, and the workspace it lives on, come with a
-            // library drawn on the wallpaper.
-            const onSurface = mode === 'desktop' || mode === 'workspaces';
-            workspace.sensitive = onSurface;
-            workspaces.visible = onSurface || detail === 'workspaces';
+            workspaces.visible = mode === 'workspaces' || detail === 'workspaces';
             // The pop-up panel only exists for the two places that are one.
             detailSizeRow.sensitive = detail === 'menu' || detail === 'modal';
         };
@@ -457,57 +445,53 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     // ------------------------------------------------------------------
     // Shortcuts
     // ------------------------------------------------------------------
-    // A row per section, set by pressing the shortcut, as GNOME Settings sets
-    // its own. The extension grabs whatever `<prefix>-shortcut` holds
-    // (lib/app.js) and follows it as it changes, so nothing is registered
-    // here — writing the setting is the whole of it.
+    // The library's shortcut, set by pressing it, as GNOME Settings sets its
+    // own. The extension grabs whatever `library-shortcut` holds (lib/app.js)
+    // and follows it as it changes, so nothing is registered here — writing
+    // the setting is the whole of it.
     _shortcutsGroup(state) {
         const {settings} = state;
-        const group = new Adw.PreferencesGroup({
-            title: 'Keyboard Shortcuts',
-            description: 'Open a section\'s library from anywhere, wherever libraries open; the same shortcut again closes it. None are set to begin with.',
+        const group = new Adw.PreferencesGroup({title: 'Keyboard Shortcut'});
+        const row = new Adw.ActionRow({
+            title: 'Open the library',
+            subtitle: 'From anywhere, wherever the library opens; the same shortcut again closes it. None is set to begin with.',
+            activatable: true,
         });
-        for (const section of SECTIONS) {
-            const key = `${section.prefix}-shortcut`;
-            const row = new Adw.ActionRow({title: section.title, activatable: true});
-            const label = new ShortcutLabel({disabled_text: 'Disabled', valign: Gtk.Align.CENTER});
-            const clear = new Gtk.Button({
-                icon_name: 'edit-clear-symbolic', valign: Gtk.Align.CENTER,
-                tooltip_text: 'Remove this shortcut', css_classes: ['flat'],
-            });
-            clear.connect('clicked', () => settings.set_strv(key, []));
-            row.add_suffix(label);
-            row.add_suffix(clear);
-            const sync = () => {
-                const accel = settings.get_strv(key)[0] ?? '';
-                label.accelerator = accel;
-                clear.visible = accel !== '';
-            };
-            settings.connect(`changed::${key}`, sync);
-            sync();
-            row.connect('activated', () => this._captureShortcut(state, section));
-            group.add(row);
-        }
+        const label = new ShortcutLabel({disabled_text: 'Disabled', valign: Gtk.Align.CENTER});
+        const clear = new Gtk.Button({
+            icon_name: 'edit-clear-symbolic', valign: Gtk.Align.CENTER,
+            tooltip_text: 'Remove this shortcut', css_classes: ['flat'],
+        });
+        clear.connect('clicked', () => settings.set_strv(SHORTCUT_KEY, []));
+        row.add_suffix(label);
+        row.add_suffix(clear);
+        const sync = () => {
+            const accel = settings.get_strv(SHORTCUT_KEY)[0] ?? '';
+            label.accelerator = accel;
+            clear.visible = accel !== '';
+        };
+        settings.connect(`changed::${SHORTCUT_KEY}`, sync);
+        sync();
+        row.connect('activated', () => this._captureShortcut(state));
+        group.add(row);
         return group;
     }
 
-    // A section's shortcut: GNOME Settings' own rules
-    // (cc-keyboard-shortcut-editor.c) — Escape cancels, Backspace removes it,
-    // and a key with no modifier is only taken when it types nothing, a
-    // function key or a media key. What the system already answers to is
-    // refused, not taken over: this is the extension's setting, not the
-    // system's.
-    _captureShortcut(state, section) {
+    // GNOME Settings' own rules (cc-keyboard-shortcut-editor.c) — Escape
+    // cancels, Backspace removes it, and a key with no modifier is only taken
+    // when it types nothing, a function key or a media key. What the system
+    // already answers to is refused, not taken over: this is the extension's
+    // setting, not the system's.
+    _captureShortcut(state) {
         const {settings} = state;
-        const key = `${section.prefix}-shortcut`;
         this._keyDialog(state, {
-            title: `Open ${section.title}`,
+            title: 'Open the Library',
             description: 'Press the new shortcut. Esc cancels, Backspace removes it.',
             onKey: (keyval, mods) => {
                 if (!mods && keyval === Gdk.KEY_Escape)
                     return true;
                 if (!mods && keyval === Gdk.KEY_BackSpace) {
-                    settings.set_strv(key, []);
+                    settings.set_strv(SHORTCUT_KEY, []);
                     return true;
                 }
                 const shown = keyLabel(keyval, mods);
@@ -516,10 +500,10 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                 if (typing)
                     return `${shown} types a character. Add Ctrl, Alt or Super to it, or use a function or media key.`;
                 const accel = Gtk.accelerator_name(keyval, mods);
-                const clash = shortcutClash(settings, accel, key);
+                const clash = shortcutClash(settings, accel, SHORTCUT_KEY);
                 if (clash)
                     return `${shown} is already taken — ${clash}. Try another, or Esc to cancel.`;
-                settings.set_strv(key, [accel]);
+                settings.set_strv(SHORTCUT_KEY, [accel]);
                 return true;
             },
         });
@@ -1393,11 +1377,8 @@ function shortcutClash(settings, accel, ownKey) {
     const wanted = normal(accel);
     const source = Gio.SettingsSchemaSource.get_default();
 
-    for (const section of SECTIONS) {
-        const key = `${section.prefix}-shortcut`;
-        if (key !== ownKey && settings.get_strv(key).some(a => normal(a) === wanted))
-            return `Open ${section.title}`;
-    }
+    if (SHORTCUT_KEY !== ownKey && settings.get_strv(SHORTCUT_KEY).some(a => normal(a) === wanted))
+        return 'Open the library';
     // A shortcut is grabbed everywhere, so it would swallow a remote's key
     // before a library ever saw it.
     for (const action of ACTIONS) {

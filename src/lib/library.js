@@ -32,6 +32,13 @@ export const SECTIONS = [
     },
 ];
 
+// The library as a whole: what its one button beside Show Apps is called and
+// shows. The sections are its tabs.
+export const LIBRARY = {
+    title: 'Videos',
+    icon: 'folder-videos-symbolic',
+};
+
 export function sectionByKey(key) {
     return SECTIONS.find(s => s.key === key) ?? SECTIONS[0];
 }
@@ -63,11 +70,6 @@ function cacheDir() {
 
 export function libraryPath() {
     return GLib.build_filenamev([cacheDir(), 'library.json']);
-}
-
-// "141 in your library", said by the section header.
-export function libraryCountLabel(count) {
-    return count ? `${count} in your library` : 'Nothing indexed yet';
 }
 
 // The file as the scanner wrote it: the raw per-section arrays and when it ran.

@@ -4,7 +4,7 @@
 // Neither shows the desktop background group: every workspace
 // preview builds its own wallpaper actor and clones that workspace's windows
 // over it, so a surface parented into `_backgroundGroup` is simply not there
-// and each section's workspace reads as empty. This puts it back the way the
+// and the library's workspace reads as empty. This puts it back the way the
 // shell puts the windows back — as a clone. Each preview gets a clone of the
 // live page that its workspace shows, laid into the preview's own background
 // group, where the overview's scaling carries it exactly as it carries the

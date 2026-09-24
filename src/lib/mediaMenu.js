@@ -1,30 +1,32 @@
-// A second application menu, of media: one per section. The "menu" view.
+// A second application menu, of media. The "menu" library.
 //
-// A section's view is the library grid from mediaGrid.js — the shell's own app
+// The view is the library from libraryView.js — tabs over the shell's own app
 // grid with posters in it — put inside the app grid's slot, a child of the
 // AppDisplay shown in place of the grid's own box, so the overview allocates
 // it, slides it up and hides it for search exactly as it does the apps.
 //
-// Each section gets a button beside Show Apps (sectionButtons.js), in the
-// dash or in Dash to Panel's panel. They are the only way in: one opens the
-// overview straight onto its section, and pressed again it closes what it
-// opened. That is the rule the docks' Show Apps follows (Dash to Panel and
-// Dash to Dock both keep a `forcedOverview` flag): a button pressed on the
-// desktop opened the overview itself, so a second press — or Escape — takes
-// the overview down and lands back on the desktop; pressed with the overview
-// already up, it only goes back to the window picker, as the shell's own
-// Show Apps does. And whatever way out of such an overview is taken goes all
-// the way down: Show Apps unchecked with a view of ours up closes it (a dock
-// only keeps its own `forcedOverview`, so left standing it would settle on
-// the window picker, and every Show Apps press after that came back there
-// rather than to the desktop), and another section's button closes it and
-// opens it again onto that section — two of the shell's own transitions
-// rather than a swap of grids inside one. Show Apps itself is left alone: it
-// leaves the grid as it always has, and what the grid shows when it is next
-// opened is the apps, because a view only lives as long as the grid is up.
+// The library's button beside Show Apps (libraryButton.js) is the only way
+// in: it opens the overview straight onto the library, and pressed again it
+// closes what it opened. That is the rule the docks' Show Apps follows (Dash
+// to Panel and Dash to Dock both keep a `forcedOverview` flag): a button
+// pressed on the desktop opened the overview itself, so a second press — or
+// Escape — takes the overview down and lands back on the desktop; pressed with
+// the overview already up, it only goes back to the window picker, as the
+// shell's own Show Apps does. And whatever way out of such an overview is
+// taken goes all the way down: Show Apps unchecked with the view up closes it
+// (a dock only keeps its own `forcedOverview`, so left standing it would
+// settle on the window picker, and every Show Apps press after that came back
+// there rather than to the desktop). Show Apps itself is left alone: it leaves
+// the grid as it always has, and what the grid shows when it is next opened
+// is the apps, because the view only lives as long as the grid is up.
 //
-// What is ours here: the workspaces row above the grid is folded away while a
-// view is up, so the posters get its room.
+// Another extension can put a view of its own into the same slot the same
+// way — Games Menu does — and the button pressed while that one is up closes
+// the overview and opens it again onto ours: two of the shell's own
+// transitions, rather than two views drawn over each other.
+//
+// What is ours here: the workspaces row above the grid is folded away while
+// the view is up, so the posters get its room.
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -33,8 +35,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {ControlsState} from 'resource:///org/gnome/shell/ui/overviewControls.js';
 
 import {Duration, Ease} from './anim.js';
-import {createMediaView} from './mediaGrid.js';
-import {SectionButtons} from './sectionButtons.js';
+import {LibraryView} from './libraryView.js';
 
 // The overview gives the dash no more than this share of its height, and
 // leaves this much of it between its rows (DASH_MAX_HEIGHT_RATIO and
@@ -43,30 +44,33 @@ const DASH_MAX_SHARE = 0.16;
 const VERTICAL_SPACING_SHARE = 0.02;
 
 export class MediaMenu {
-    constructor({sections, itemsFor, onActivate, columns, rows}) {
-        // A section with nothing in it gets no button.
-        this._sections = sections.filter(s => itemsFor(s.key).length);
+    // `button` is the library's button beside Show Apps, which the app holds
+    // and hands to whichever place the library opens in; `onSwitch` hears of
+    // a tab chosen here.
+    constructor({sections, itemsFor, onActivate, columns, rows, button, onSwitch, onOpenSettings}) {
+        this._sections = sections;
         this._itemsFor = itemsFor;
         this._onActivate = onActivate;
         this._columns = columns;
         this._rows = rows;
-        this._views = new Map();
-        this._buttons = new SectionButtons({
-            sections: this._sections,
-            onActivate: key => this.toggle(key),
-        });
-        this._current = null;
-        // The slot the shell's own layout last measured for a view of ours,
-        // and the box the views standing were actually built for.
+        this._button = button;
+        this._onSwitch = onSwitch;
+        this._onOpenSettings = onOpenSettings;
+        this._library = null;
+        // Whether the view is what the app grid shows, and which tab it is on.
+        this._showing = false;
+        this._key = sections[0]?.key ?? null;
+        // The slot the shell's own layout last measured for the view, and the
+        // box the view standing was actually built for.
         this._slot = null;
         this._box = null;
         // How far the workspaces were last left folded, 0 to 1.
         this._fold = 0;
-        // Whether the overview that is up is one a button of ours opened.
+        // Whether the overview that is up is one our button opened.
         this._forced = false;
         this._escapeId = 0;
-        // The section to open onto once the overview has gone down: a
-        // switch closes the one that is up and opens another.
+        // The tab to open onto once the overview has gone down, when another
+        // extension's view was up in the slot (see the top of this file).
         this._next = null;
         this._reopenId = 0;
     }
@@ -93,9 +97,9 @@ export class MediaMenu {
         // leave a view up with nothing showing it and Show Apps still ours,
         // so the next click on it went nowhere.)
         //
-        // Unchecked with a view of ours up in an overview a button of ours
-        // opened, that is Show Apps pressed — or the app grid stepped down
-        // from — and the overview goes down whole, as it does for Escape.
+        // Unchecked with the view up in an overview our button opened, that
+        // is Show Apps pressed — or the app grid stepped down from — and the
+        // overview goes down whole, as it does for Escape.
         // Not while a swipe is landing (the shell unchecks before it eases,
         // and the gesture is the shell's), and not for a search, which
         // unchecks as it starts and puts the grid back as it ends.
@@ -103,18 +107,18 @@ export class MediaMenu {
         this._showAppsButton.connectObject('notify::checked', button => {
             if (button.checked)
                 return;
-            const leaving = this._current && this._forced &&
+            const leaving = this._showing && this._forced &&
                 Main.overview.visible && !Main.overview.animationInProgress &&
                 !this._adjustment?.gestureInProgress &&
                 !this._controls._searchController?.searchActive;
-            this._show(null);
+            this._show(false);
             if (leaving)
                 Main.overview.hide();
         }, this);
 
         // The end of a search shows the workspaces again, whatever is up.
         this._controls._searchController?.connectObject('notify::search-active', controller => {
-            if (!controller.searchActive && this._current)
+            if (!controller.searchActive && this._showing)
                 this._syncWorkspaces(true);
         }, this);
 
@@ -122,9 +126,9 @@ export class MediaMenu {
         this._adjustment?.connectObject('notify::value', () => this._syncWorkspaces(), this);
 
         // However the overview goes, it is nobody's forced one any more —
-        // and if it went down for a switch, it comes back up onto the
-        // section that asked, off the idle so the shell's own hide has
-        // finished with it first.
+        // and if it went down to make way for ours, it comes back up onto
+        // the library, off the idle so the shell's own hide has finished
+        // with it first.
         Main.overview.connectObject('hidden', () => {
             this._unforce();
             const next = this._next;
@@ -139,20 +143,23 @@ export class MediaMenu {
         }, this);
 
         this._foldWorkspaces();
-
-        this._buttons.attach();
     }
 
     disable() {
         if (!this._appsBox)
             return;
-        this._show(null);
-        this._buttons.detach();
-        // Only if it is still ours: someone may have wrapped it since.
+        this._show(false);
+        // Only if it is still ours: someone may have wrapped it since, and
+        // taking ours out from under theirs would take theirs with it. Left
+        // in, ours does nothing once the view is gone.
         const layout = this._controls.layout_manager;
-        if (this._foldedBox && layout._getAppDisplayBoxForState === this._foldedBox)
-            delete layout._getAppDisplayBoxForState;
-        this._foldedBox = null;
+        if (this._foldedBox && layout._getAppDisplayBoxForState === this._foldedBox) {
+            if (this._stockBox)
+                layout._getAppDisplayBoxForState = this._stockBox;
+            else
+                delete layout._getAppDisplayBoxForState;
+        }
+        this._foldedBox = this._stockBox = null;
         this._controls.queue_relayout();
         this._showAppsButton?.disconnectObject(this);
         this._showAppsButton = null;
@@ -165,13 +172,13 @@ export class MediaMenu {
         this._controls._searchController?.disconnectObject(this);
         this._adjustment?.disconnectObject(this);
         this._adjustment = null;
-        this._dropViews();
+        this._dropView();
         this._slot = null;
         this._controls = this._appDisplay = this._appsBox = null;
     }
 
     // In the app grid state the overview keeps a row of small workspaces above
-    // the grid and gives the grid what is left. While a media view is up the
+    // the grid and gives the grid what is left. While the view is up the
     // grid's box is grown over that row instead, and the row faded out (see
     // _syncWorkspaces) — the workspaces keep their box, because the shell
     // divides by its height.
@@ -181,13 +188,16 @@ export class MediaMenu {
         if (typeof stock !== 'function')
             return;
         const menu = this;
+        // Put back as it was on the way out: another extension's own wrap,
+        // when it was there first, or nothing, for the prototype's.
+        this._stockBox = Object.hasOwn(layout, '_getAppDisplayBoxForState') ? stock : null;
         // Six arguments since GNOME 47; five before.
         this._foldedBox = layout._getAppDisplayBoxForState = function (state, box, searchHeight, dashHeight, workspacesBox, spacing) {
             const slot = stock.call(this, state, box, searchHeight, dashHeight, workspacesBox, spacing);
             // The folded slot, measured by the shell's own layout, for the
-            // next view that has to be built before it is ever allocated.
+            // next time the view has to be built before it is ever allocated.
             menu._slot = [slot.get_width(), slot.get_height() + workspacesBox.get_height() + spacing];
-            if (!menu._current)
+            if (!menu._showing)
                 return slot;
             // The same size in every state, as the shell has it, so the slide
             // up from the window picker moves the slot without stretching it.
@@ -213,7 +223,7 @@ export class MediaMenu {
         if (!workspaces || this._controls._searchController?.searchActive)
             return;
         const state = this._adjustment?.value ?? ControlsState.WINDOW_PICKER;
-        const fold = this._current
+        const fold = this._showing
             ? Math.clamp(state - ControlsState.WINDOW_PICKER, 0, 1) : 0;
         // Nothing of ours to undo, which is every frame the overview moves
         // with the apps up: the workspaces are the shell's to animate.
@@ -246,73 +256,75 @@ export class MediaMenu {
         }
     }
 
-    // A section's button, or its shortcut: its view, opening the overview onto it if need be;
-    // or, when that view is what is up, the way back out — to the desktop if
-    // this is an overview a button of ours opened, else unchecked, which the
-    // shell takes back to the window picker. With another section's view up
-    // the overview goes down and comes back up onto this one (see `hidden`),
-    // rather than the grids swapping inside it.
-    toggle(key) {
-        if (Main.overview.visible && this._showAppsButton.checked && this._current) {
-            if (this._current !== key) {
-                this._next = key;
+    // The button, or the shortcut: the library, opening the overview onto it
+    // if need be; or, when that is what is up, the way back out — to the
+    // desktop if this is an overview our button opened, else unchecked, which
+    // the shell takes back to the window picker.
+    toggle(key = null) {
+        if (this.isShowing) {
+            if (this._forced)
                 Main.overview.hide();
-            } else if (this._forced) {
-                Main.overview.hide();
-            } else {
+            else
                 this._showAppsButton.checked = false;
-            }
             return;
         }
         this.open(key);
     }
 
-    // The way out, whatever is up: a view of ours only exists while the
-    // overview does, so taking the overview down closes it.
+    // The way out, whatever is up: the view only exists while the overview
+    // does, so taking the overview down closes it.
     close() {
         Main.overview.hide();
     }
 
-    // A section's view is what the overview is showing.
+    // The view is what the overview is showing.
     get isShowing() {
-        return Main.overview.visible && !!this._showAppsButton?.checked && !!this._current;
+        return Main.overview.visible && !!this._showAppsButton?.checked && this._showing;
     }
 
-    // The grid on show, for a page turn with the keyboard not yet in it.
+    // Its grid on show, for a page turn with the keyboard not yet in it.
     get currentView() {
-        return this.isShowing ? this._views.get(this._current) ?? null : null;
+        return this.isShowing ? this._library?.currentView ?? null : null;
     }
 
-    // What is up, for a rebuild to put back: the section showing, and whether
-    // the overview it is in is one a button of ours opened. A rebuild tears
-    // this menu down and makes another (a change of `columns`, a rescan
-    // landing), and without this the overview was left on the app grid,
-    // with the section gone and the new column count nowhere to be seen
-    // until the button was pressed again.
+    // What is up, for a rebuild to put back: the tab showing, and whether the
+    // overview it is in is one our button opened. A rebuild tears this menu
+    // down and makes another (a change of `columns`, a rescan landing), and
+    // without this the overview was left on the app grid, with the library
+    // gone and the new column count nowhere to be seen until the button was
+    // pressed again.
     get state() {
-        return {key: this._current, forced: this._forced};
+        return {key: this._showing ? this._key : null, forced: this._forced};
     }
 
-    // The section `state` names back into the overview, if that is still up
-    // -- otherwise there is nothing to restore into, and the next press
-    // builds the view fresh anyway.
+    // The tab `state` names back into the overview, if that is still up —
+    // otherwise there is nothing to restore into, and the next press builds
+    // the view fresh anyway.
     restore(state) {
         if (!state?.key || !this._appsBox || !Main.overview.visible)
-            return;
-        if (!this._sections.some(s => s.key === state.key))
             return;
         if (state.forced)
             this._force();
         this.open(state.key);
     }
 
-    // The overview, on a section's view: opened onto it, or brought up to the
-    // grid if it is already showing.
-    open(key) {
+    // The overview, on the library: opened onto it, or brought up to the grid
+    // if it is already showing. `key` is the tab, or the one last shown.
+    open(key = null) {
         this._next = null;
-        if (!this._appsBox || !this._sections.some(s => s.key === key))
+        if (!this._appsBox)
             return;
-        this._show(key);
+        if (this._sections.some(s => s.key === key))
+            this._key = key;
+        // Another extension's view in the slot: the overview goes down and
+        // comes back up onto ours (`hidden`, above).
+        if (Main.overview.visible && this._showAppsButton.checked &&
+            !this._showing && !this._appsBox.visible) {
+            this._next = this._key;
+            Main.overview.hide();
+            return;
+        }
+        this._show(true);
         if (Main.overview.visible) {
             this._showAppsButton.checked = true;
             return;
@@ -321,8 +333,8 @@ export class MediaMenu {
         Main.overview.show(ControlsState.APP_GRID);
     }
 
-    // An overview of our own opening. While it is up, Escape on a view of
-    // ours closes it whole — the desktop is where it was opened from — where
+    // An overview of our own opening. While it is up, Escape on the view
+    // closes it whole — the desktop is where it was opened from — where
     // the shell's Escape would only step down to the window picker. Seen
     // ahead of the shell's own handler, which is on the stage's bubbling
     // phase; a search or a popup over the overview is left its own Escape.
@@ -340,7 +352,7 @@ export class MediaMenu {
         this._escapeId = global.stage.connect('captured-event::key', (_stage, event) => {
             if (event.type() !== Clutter.EventType.KEY_PRESS ||
                 event.get_key_symbol() !== Clutter.KEY_Escape ||
-                !this._current || !this._showAppsButton?.checked ||
+                !this._showing || !this._showAppsButton?.checked ||
                 Main.modalCount > 1 || this._controls?._searchController?.searchActive)
                 return Clutter.EVENT_PROPAGATE;
             Main.overview.hide();
@@ -356,30 +368,34 @@ export class MediaMenu {
     }
 
     // ------------------------------------------------------------------
-    // Views
+    // The view
     // ------------------------------------------------------------------
-    // A section's view in the app grid's slot, or (null) the apps again.
-    _show(key) {
+    // The library in the app grid's slot, or the apps again.
+    _show(showing) {
         if (!this._appsBox)
             return;
-        if (key !== this._current) {
+        if (showing !== this._showing) {
             // Built against the slot as it stands, before the fold moves it.
-            const view = key ? this._view(key) : null;
-            this._views.get(this._current)?.hide();
-            this._current = key;
-            this._appsBox.visible = !key;
-            if (view) {
-                view.show();
-                view.goToPage(0, false);
+            const library = showing ? this._view() : null;
+            if (!showing)
+                this._library?.actor.hide();
+            this._showing = showing;
+            this._appsBox.visible = !showing;
+            if (library) {
+                library.show(this._key);
+                library.actor.show();
+                library.currentView?.goToPage(0, false);
             }
             this._syncWorkspaces(true);
             this._controls.queue_relayout();
+        } else if (showing) {
+            this._library?.show(this._key);
         }
-        // A toggle button unchecks itself when the one that is up is clicked.
-        this._buttons.sync(this._current);
+        // A toggle button unchecks itself when it is clicked while up.
+        this._button.sync(this._showing);
     }
 
-    // The slot as the overview will lay it out under a media view: the one
+    // The slot as the overview will lay it out under the view: the one
     // the shell's own layout last handed us, or — for a button pressed
     // before the overview has ever been shown — worked out as that layout
     // does, since what the slot was last given says nothing of which of the
@@ -410,44 +426,44 @@ export class MediaMenu {
         return [width, height - searchHeight - dashHeight - 2 * spacing];
     }
 
-    // Built the first time it is wanted — and every section against the same
-    // box, or `columns` would mean one cover size in one section and another
-    // in the next. The first press can come before the overview has ever laid
-    // the slot out, and what that press gets is `_slotSize`'s estimate; the
-    // shell's own measurement lands a moment later and need not agree with it
-    // to the pixel. So the box the views standing were built for is kept, and
-    // when it moves they all go and are built again against the new one.
-    _view(key) {
+    // Built the first time it is wanted. The first press can come before the
+    // overview has ever laid the slot out, and what that press gets is
+    // `_slotSize`'s estimate; the shell's own measurement lands a moment later
+    // and need not agree with it to the pixel. So the box the view standing
+    // was built for is kept, and when it moves the view goes and is built
+    // again against the new one — every tab at once, or `columns` would mean
+    // one cover size in one section and another in the next.
+    _view() {
         const [width, height] = this._slotSize();
         if (this._box && (this._box[0] !== width || this._box[1] !== height))
-            this._dropViews();
+            this._dropView();
         this._box = [width, height];
+        if (this._library)
+            return this._library;
 
-        let view = this._views.get(key);
-        if (view)
-            return view;
-
-        const section = this._sections.find(s => s.key === key);
-
-        view = createMediaView({
-            section,
-            items: this._itemsFor(key),
+        this._library = new LibraryView({
+            sections: this._sections,
+            itemsFor: this._itemsFor,
+            active: this._key,
             width,
             height,
             columns: this._columns,
             rows: this._rows,
             onActivate: this._onActivate,
+            onSwitch: key => {
+                this._key = key;
+                this._onSwitch?.(key);
+            },
+            onOpenSettings: this._onOpenSettings,
         });
-        view.visible = false;
-        this._appDisplay.add_child(view);
-        this._views.set(key, view);
-        return view;
+        this._library.actor.visible = false;
+        this._appDisplay.add_child(this._library.actor);
+        return this._library;
     }
 
-    _dropViews() {
-        for (const view of this._views.values())
-            view.destroy();
-        this._views.clear();
+    _dropView() {
+        this._library?.destroy();
+        this._library = null;
         this._box = null;
     }
 }

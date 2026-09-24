@@ -20,7 +20,7 @@ export const ACTIONS = [
     {key: 'right', title: 'Right', stands: 'Right'},
     {key: 'select', title: 'Select', subtitle: 'Opens or plays what is highlighted, as Enter does', stands: 'Return'},
     {key: 'back', title: 'Back', subtitle: 'Backs out one level, as Escape does', stands: 'Escape'},
-    {key: 'home', title: 'Home', subtitle: 'Straight back out to the home menu, or out of the library altogether'},
+    {key: 'home', title: 'Home', subtitle: 'Opens the library, or closes it from wherever in it you are'},
     {key: 'page-previous', title: 'Previous page', subtitle: 'Turns a library back a page'},
     {key: 'page-next', title: 'Next page', subtitle: 'Turns a library on a page'},
     {key: 'watched', title: 'Mark watched', subtitle: 'Ticks the highlighted episode or film on or off'},

@@ -1,18 +1,26 @@
-// MediaLibrariesApp: owns the desktop surface, what is on it, and the transitions
-// between them. Rendering happens on the wallpaper layer of the active
-// workspace, so the surface is shown and hidden as workspaces change.
+// MediaLibrariesApp: owns the library's button, the desktop surface, what is
+// on it, and the transitions between them. Rendering happens on the wallpaper
+// layer of the active workspace, so the surface is shown and hidden as
+// workspaces change.
+//
+// The way in is one button beside Show Apps (libraryButton.js) and its
+// shortcut, wherever the library opens, and the library is tabs between its
+// sections over a grid of each (libraryView.js).
 //
 // Two settings decide where things open, and they are read independently of
-// each other: `library-opens-in` for a section's grid, `detail-opens-in` for
-// the pane of a picked item. Both take the same four values, meaning the same
+// each other: `library-opens-in` for the library, `detail-opens-in` for the
+// pane of a picked item. Both take the same four values, meaning the same
 // four places:
 //
-//   desktop     on the wallpaper, on the workspace you are already on
+//   desktop     on the wallpaper of the workspace you are on, brought up there
+//               by the button and put away by it again
 //   workspaces  on the wallpaper, on a workspace of its own, slid to
-//   menu        in the overview's app-grid slot (mediaMenu.js) for a library;
-//               popped up as an app folder is (detailDialog.js) for a pane
-//   modal       in the folder's panel over the desktop (libraryWindow.js for a
-//               library, detailDialog.js for a pane), held until it is closed
+//   menu        in the overview's app-grid slot (mediaMenu.js) for the
+//               library; popped up as an app folder is (detailDialog.js) for
+//               a pane
+//   modal       in the folder's panel over the desktop (libraryWindow.js for
+//               the library, detailDialog.js for a pane), held until it is
+//               closed
 //
 // Neither setting looks at the other. What follows from the pair rather than
 // from either alone is one thing only, and it is named: `_detailInPlace()` —
@@ -20,10 +28,10 @@
 // pick a hero flight in place of the grid rather than a move to somewhere else.
 //
 // The surface is built when either of them is `desktop` or `workspaces`. It
-// holds the home menu, one page per section — a header over a library grid —
-// and one detail page, each built once and kept, so moving between them is a
-// matter of which is visible. The pane is shared: it sits in the detail page,
-// or moves into a section's page when it is replacing that section's grid.
+// holds the library's page — the tabs over the grids — and one detail page,
+// each built once and kept, so moving between them is a matter of which is
+// visible. The pane is shared: it sits in the detail page, or moves into the
+// library's page when it is replacing the grid.
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Util from 'resource:///org/gnome/shell/misc/util.js';
@@ -36,11 +44,12 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 
 import {Duration, Ease, POP_SCALE, allocateNow, fadeTo, flyClone, rectIn} from './anim.js';
-import {SECTIONS, libraryCountLabel, loadLibrary, libraryPath, migrateOpenCommand, openCommandKey, sectionByKey} from './library.js';
-import {createEmptyState, createHeader} from './widgets.js';
+import {SECTIONS, loadLibrary, libraryPath, migrateOpenCommand, openCommandKey, sectionByKey} from './library.js';
+import {createHeader, createIconButton} from './widgets.js';
 import {setCornerRadius} from './shape.js';
-import {createMediaView, setGridAlign} from './mediaGrid.js';
-import {HOME, HomeView} from './homeView.js';
+import {setGridAlign} from './mediaGrid.js';
+import {HEADER_ALLOWANCE, LibraryView} from './libraryView.js';
+import {LibraryButton} from './libraryButton.js';
 import {DetailView} from './detailView.js';
 import {OverviewPreview} from './overviewPreview.js';
 import {MediaMenu} from './mediaMenu.js';
@@ -52,15 +61,14 @@ import {Controls, NAVIGATION_KEYS, handleBoundKey} from './controls.js';
 
 // Gap between the surface and the work-area edges, in logical px.
 const OUTER_MARGIN = 28;
-// `.ml-header`'s height (52px) plus its margin-bottom (24px) in stylesheet.css
-// — keep in step — subtracted before sizing what goes under it. Logical px.
-const HEADER_ALLOWANCE = 76;
 // workspaceAnimation.js WINDOW_ANIMATION_TIME — exported only from 50, so restated.
 const WORKSPACE_SLIDE_TIME = 250;
-// The place a workspace showing a picked item is at. Places are what
-// `_placeForWorkspace` names: HOME, a section key, or this. There is one pane
-// and one pick, so there is only ever one of these.
+// The places a workspace of ours can show, as `_placeForWorkspace` names them:
+// the library, or a picked item on a page of its own. There is one library,
+// one pane and one pick, so there is only ever one of each.
+const LIBRARY = 'library';
 const DETAIL = 'detail';
+
 // Open a file with the command its section names, or the system default app —
 // which is also what a command whose program is not installed gets, since the
 // video sections name VLC by default and not every machine has it.
@@ -113,8 +121,8 @@ function openPath(path, command = '', beforeLaunch = null) {
         });
 }
 
-// Is this workspace still one of the manager's? A section's workspace is
-// removed under us as the section closes, and `Meta.Workspace.index()` on a
+// Is this workspace still one of the manager's? A claimed workspace is
+// removed under us as what claimed it closes, and `Meta.Workspace.index()` on a
 // removed one is a failed assertion — a libmutter CRITICAL in the journal —
 // before it returns -1. There are only ever a handful of workspaces, so ask
 // the manager for them instead.
@@ -136,10 +144,10 @@ export class MediaLibrariesApp {
         this._container = null;
         this._stack = null;
         this._overlay = null;
-        this._home = null;
-        this._pages = new Map();
+        // The library's page on the surface, when the library opens there.
+        this._library = null;
         // The pane's own page — a header over the pane, no grid — built the
-        // first time a pick needs one that is not taking a grid's place.
+        // first time a pick needs one that is not taking the grid's place.
         this._detailPage = null;
         // The pane on the surface, for picks that open there; null when they
         // pop up instead.
@@ -148,38 +156,46 @@ export class MediaLibrariesApp {
         // open on the surface.
         this._dialog = null;
         this._sections = {};
+        // The tab the library is on, wherever it is browsed. It outlives a
+        // rebuild, so the library comes back on the tab it was left on.
         this._sectionKey = null;
+        // Whether the library's page shows its grid or, in its place, a pick.
         this._mode = 'library';
-        // The place the surface is set to show, and the place it is actually
-        // showing. They differ exactly across a rebuild, which empties the
-        // stack without changing what the user last asked for — so `_place`
-        // is what restores it and `_shown` is what knows it needs restoring.
-        this._place = null;
+        // The page actually on the stack. A rebuild empties the stack without
+        // changing what the workspace is set to show, which is exactly when
+        // the page has to be put back — so this, not the place, is what
+        // `_onWorkspaceChanged` compares against.
         this._shown = null;
         this._busy = false;
         this._reloadWanted = false;
-        this._leaving = null;
+        // Workspaces given up and still being slid away from, and what each
+        // was showing: the slide still wants a picture of them.
+        this._leaving = new Map();
         this._heroFrom = null;
         this._monitor = null;
         this._previews = null;
+        // The one way in, wherever the library opens. It lives as long as the
+        // extension does rather than per build, so a rescan does not take it
+        // out of the dash and put it back.
+        this._button = new LibraryButton({onActivate: () => this._toggleLibrary()});
         // Where the library is browsed when not on the surface: the menu view
-        // or the window view. Null in the desktop view.
+        // or the window view. Null when it is drawn on the surface.
         this._browser = null;
-        // The browsers' views: what was picked, and the workspace it was
-        // picked from, which is where Back returns to.
+        // The pick on show on the surface, and the workspace the library was
+        // opened from or the pick was made on — which is where Back and the
+        // way out return to.
         this._picked = null;
         this._origin = null;
         this._builtBounds = null;
         this._rebuildTimer = 0;
         this._closeTimer = 0;
-        this._prebuildIdle = 0;
         this._keptAlive = [];
-        // The workspace each open section was given, by section key, when the
-        // library opens in 'workspaces'. Held as workspaces, not indices,
-        // which shift as others close.
-        this._opened = new Map();
+        // The workspace the library is up on: the one it was brought up on in
+        // 'desktop', the one it claimed in 'workspaces', null while it is put
+        // away. Held as a workspace, not an index, since indices shift as
+        // others close.
+        this._libraryWorkspace = null;
         // And the one the pane was given, when a pick opens in 'workspaces'.
-        // There is one pane and one pick, so there is only ever one.
         this._detailWorkspace = null;
         // What has been watched, read by the detail pane's rows.
         this._tracker = new Tracker(this._settings);
@@ -188,10 +204,10 @@ export class MediaLibrariesApp {
         // Remotes, controllers and keys of the user's own (controls.js).
         this._controls = new Controls(this._settings, {
             isActive: () => this._controlsActive(),
-            onHome: () => this._controlsHome(),
+            onHome: () => this._closeLibrary(),
             onOpen: () => this._controlsOpen(),
             currentView: () => this._browser?.currentView ??
-                (this._mode === 'library' ? this._pages.get(this._sectionKey)?.library : null),
+                (this._mode === 'library' ? this._library?.currentView : null),
         });
     }
 
@@ -204,7 +220,6 @@ export class MediaLibrariesApp {
         this._tracker.enable();
         this._playback.enable();
         this._sections = loadLibrary();
-        this._applyWorkspaceMode();
         this._build();
 
         global.workspace_manager.connectObject(
@@ -233,7 +248,7 @@ export class MediaLibrariesApp {
         Main.overview.connectObject('hidden',
             () => this._syncKeyFocus(this._onTarget()), this);
 
-        const rebuildKeys = ['workspace-index', 'columns', 'rows', 'grid-align', 'corner-radius', 'detail-size',
+        const rebuildKeys = ['columns', 'rows', 'grid-align', 'corner-radius', 'detail-size',
             ...SECTIONS.map(s => `${s.prefix}-enabled`)];
         for (const key of rebuildKeys)
             this._settings.connectObject(`changed::${key}`, () => this._scheduleRebuild(), this);
@@ -242,25 +257,22 @@ export class MediaLibrariesApp {
         // been opened somewhere the new setting has no room for.
         for (const key of ['library-opens-in', 'detail-opens-in']) {
             this._settings.connectObject(`changed::${key}`, () => {
-                this._opened.clear();
-                this._detailWorkspace = null;
+                this._libraryWorkspace = this._detailWorkspace = null;
                 this._picked = this._origin = null;
                 this._scheduleRebuild();
             }, this);
         }
 
-        // A shortcut per section, grabbed the way the shell grabs its own:
+        // The library's shortcut, grabbed the way the shell grabs its own:
         // the setting holds the accelerators, and mutter follows it as it
         // changes, so a shortcut set in the preferences works at once. In the
         // overview as well as on the desktop, as Super+A is — and over a
         // popup, which is only so the modal library's own panel can be closed
-        // or switched with it; see `_onShortcut`.
-        for (const section of SECTIONS) {
-            Main.wm.addKeybinding(`${section.prefix}-shortcut`, this._settings,
-                Meta.KeyBindingFlags.NONE,
-                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
-                () => this._onShortcut(section.key));
-        }
+        // with it; see `_onShortcut`.
+        Main.wm.addKeybinding('library-shortcut', this._settings,
+            Meta.KeyBindingFlags.NONE,
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+            () => this._onShortcut());
 
         // The scanner writes library.json atomically; refresh when it lands so
         // a rescan from the preferences shows up without touching the shell.
@@ -286,8 +298,7 @@ export class MediaLibrariesApp {
     }
 
     disable() {
-        for (const section of SECTIONS)
-            Main.wm.removeKeybinding(`${section.prefix}-shortcut`);
+        Main.wm.removeKeybinding('library-shortcut');
         global.workspace_manager.disconnectObject(this);
         global.display.disconnectObject(this);
         Main.layoutManager.disconnectObject(this);
@@ -304,9 +315,10 @@ export class MediaLibrariesApp {
                 GLib.source_remove(id);
         }
         this._rebuildTimer = this._closeTimer = 0;
+        this._leaving.clear();
         this._teardown();
-        this._opened.clear();
-        this._detailWorkspace = null;
+        this._button.detach();
+        this._libraryWorkspace = this._detailWorkspace = null;
         this._picked = this._origin = null;
         this._keepOnly(new Set());
         this._sections = {};
@@ -317,17 +329,14 @@ export class MediaLibrariesApp {
     }
 
     _teardown() {
-        if (this._prebuildIdle)
-            GLib.source_remove(this._prebuildIdle);
-        this._prebuildIdle = 0;
         this._previews?.destroy();
         this._previews = null;
         // Closes whatever it had open, too.
         this._browser?.disable();
         this._browser = null;
-        // The home menu and the pages are the container's children, and go
-        // with it; the pane and the popup host themselves.
-        this._pages.clear();
+        // The pages are the container's children, and go with it; the pane
+        // and the popup host themselves.
+        this._library = null;
         this._detailPage = null;
         this._detail?.destroy();
         // Let go of the keyboard and the tile it came out of before it goes.
@@ -339,7 +348,7 @@ export class MediaLibrariesApp {
         // stage holding a disposed one.
         const container = this._container;
         const stack = this._stack;
-        this._home = this._detail = this._dialog = null;
+        this._detail = this._dialog = null;
         this._container = this._stack = this._overlay = null;
         if (stack)
             global.focus_manager.remove_group(stack);
@@ -350,9 +359,10 @@ export class MediaLibrariesApp {
     }
 
     // 'workareas-changed' is a claim that some work area may have changed: the
-    // shell makes it whenever a workspace is added or removed, which opening and
-    // closing a section both do. A rebuild tears the surface down and staggers
-    // it back in, so it waits for the box we actually draw in to move.
+    // shell makes it whenever a workspace is added or removed, which opening
+    // and closing the library on one of its own both do. A rebuild tears the
+    // surface down and puts it back, so it waits for the box we actually draw
+    // in to move.
     _onGeometryChanged() {
         const now = this._bounds();
         const was = this._builtBounds;
@@ -360,9 +370,9 @@ export class MediaLibrariesApp {
             this._scheduleRebuild();
     }
 
-    // Settings and geometry changes arrive in bursts (a spin button held down,
-    // every monitor reporting in), and a rescan writes the library more than
-    // once; `reload` rides the same timer so a burst of either is one rebuild.
+    // Settings and geometry changes arrive in bursts (a slider dragged, every
+    // monitor reporting in), and a rescan writes the library more than once;
+    // `reload` rides the same timer so a burst of either is one rebuild.
     _scheduleRebuild({reload = false, delay = 150} = {}) {
         this._reloadWanted ||= reload;
         if (this._rebuildTimer)
@@ -372,12 +382,11 @@ export class MediaLibrariesApp {
             if (this._reloadWanted)
                 this._sections = loadLibrary();
             this._reloadWanted = false;
-            // A browser being looked at is put back on the same section
-            // once rebuilt, so the change that caused the rebuild shows
-            // where it is being looked for rather than on the next press.
+            // A browser being looked at is put back on the same tab once
+            // rebuilt, so the change that caused the rebuild shows where it
+            // is being looked for rather than on the next press.
             const browsing = this._browser?.state ?? null;
             this._teardown();
-            this._applyWorkspaceMode();
             this._build();
             this._syncVisibility(false);
             this._browser?.restore(browsing);
@@ -436,22 +445,12 @@ export class MediaLibrariesApp {
     }
 
     // Who claims a workspace of their own, and so needs one held open.
-    _libraryClaimsWorkspaces() {
+    _libraryClaimsWorkspace() {
         return this._libraryMode() === 'workspaces';
     }
 
     _detailClaimsWorkspace() {
         return this._detailMode() === 'workspaces';
-    }
-
-    // The home menu's workspace. It exists only where there is a home menu,
-    // which is wherever the library is on the surface; -1 is no workspace's
-    // index. In 'desktop' the sections share it; in 'workspaces' they each
-    // get one past it.
-    _targetWorkspace() {
-        if (!this._libraryOnSurface())
-            return -1;
-        return this._settings.get_int('workspace-index');
     }
 
     // The grid shape, for every grid in every view.
@@ -467,87 +466,62 @@ export class MediaLibrariesApp {
     // Workspaces
     //
     // A workspace is claimed by whoever is set to open on one of their own:
-    // a section, when the library opens in 'workspaces'; the pane, when a
-    // pick does. Either can be true without the other.
-    //
-    // Only the Home workspace, `workspace-index`, is there to begin with. It
-    // carries the launcher menu, and in 'desktop' the section pages as well.
+    // the library, when it opens in 'workspaces'; the pane, when a pick does.
+    // Either can be true without the other. In 'desktop' the library is only
+    // ever on a workspace that was already there.
     //
     // GNOME's dynamic workspaces collapse any empty workspace that is not the
-    // last one, which would fold ours away; the workspace tracker spares a
-    // workspace whose _keepAliveId is set (the hook it uses itself while a
-    // window is being dragged to a new workspace), so ours carry a long-lived
-    // timeout source there until they are closed or the extension is disabled.
+    // active or the last one, which would fold ours away the moment we slid
+    // off one — and with it the way back, since an empty desktop left for the
+    // library is just such a workspace. The workspace tracker spares one whose
+    // _keepAliveId is set (the hook it uses itself while a window is being
+    // dragged to a new workspace), so ours carry a long-lived timeout source
+    // there until they are given up or the extension is disabled.
     // ------------------------------------------------------------------
 
-    // What a workspace shows: HOME for the launcher, a section key for its
-    // library, DETAIL for the pane, or null when it is not one of ours.
-    // Workspaces are compared as objects, never by index — see
-    // `workspaceIsLive`.
+    // What a workspace shows: LIBRARY, DETAIL for the pane on a page of its
+    // own, or null when it is not one of ours. Workspaces are compared as
+    // objects, never by index — see `workspaceIsLive`.
     _placeForWorkspace(workspace) {
         if (!workspace)
             return null;
-        // The pane on a workspace of its own is that workspace's whole point,
-        // so it answers before the section pages do — with both set to
-        // 'workspaces' the claimed one is past Home either way.
+        // The pane on a workspace of its own is that workspace's whole point.
         if (this._detailClaimsWorkspace() && this._picked &&
             workspace === this._detailWorkspace)
             return DETAIL;
-        // Opened on the workspace the pick was made on. With the library on
-        // the surface that is a section's own workspace, and the pane takes
-        // the page's place there rather than being a place of its own; with
-        // the library browsed elsewhere, this is the only thing we draw.
-        if (!this._libraryOnSurface() && this._detailOnSurface() && this._picked &&
-            workspace === this._origin)
-            return DETAIL;
-
-        if (!this._libraryOnSurface())
-            return null;
-
-        const target = this._targetWorkspace();
-        const home = target >= 0 && workspace === global.workspace_manager.get_workspace_by_index(target);
-        // Everything shares Home: which page is up is a matter of what was
-        // last pressed, not of which workspace this is.
-        if (!this._libraryClaimsWorkspaces())
-            return home ? this._place ?? HOME : null;
-        if (home)
-            return HOME;
-        for (const [key, held] of this._opened) {
-            if (held === workspace)
-                return key;
+        // With the library browsed elsewhere, a pane on the surface is on the
+        // workspace the pick was made on, and is the only thing we draw.
+        if (!this._libraryOnSurface()) {
+            return this._detailOnSurface() && this._picked && workspace === this._origin
+                ? DETAIL : null;
         }
-        return null;
+        return workspace === this._libraryWorkspace ? LIBRARY : null;
     }
 
-    _applyWorkspaceMode() {
-        const wm = global.workspace_manager;
-        const needed = this._targetWorkspace() + 1;
-        if (Meta.prefs_get_dynamic_workspaces()) {
-            while (wm.n_workspaces < needed)
-                wm.append_new_workspace(false, global.get_current_time());
-        } else if (wm.n_workspaces < needed) {
-            console.warn(`[Media Libraries] Workspace ${needed} is where the home menu goes, but only ` +
-                `${wm.n_workspaces} exist (Settings → Multitasking).`);
-        }
-
-        // An open section goes with its workspace, and with its setting.
-        const enabled = this._enabledSections();
-        for (const [key, workspace] of [...this._opened]) {
-            if (!workspaceIsLive(workspace) || !enabled.some(s => s.key === key))
-                this._opened.delete(key);
-        }
+    // What is held open: the workspace the library is up on, the pane's, any
+    // being slid away from, and — while something of ours is up somewhere
+    // else — the way back to where it was opened from. What has gone with its
+    // workspace, or with its section's setting, is forgotten. Called after
+    // anything that changes one of them, and before the slide that follows.
+    _holdWorkspaces() {
+        if (!workspaceIsLive(this._libraryWorkspace))
+            this._libraryWorkspace = null;
         if (!workspaceIsLive(this._detailWorkspace))
             this._detailWorkspace = null;
-        if (this._picked && !enabled.some(s => s.key === this._picked.key))
+        if (!workspaceIsLive(this._origin))
+            this._origin = null;
+        if (this._picked && !this._enabledSections().some(s => s.key === this._picked.key))
             this._picked = null;
 
-        // Everything up to and including Home stays put, so its index cannot
-        // shift underneath us.
-        const wanted = new Set(this._opened.values());
-        if (this._detailWorkspace)
-            wanted.add(this._detailWorkspace);
-        for (let i = 0; i < Math.min(needed, wm.n_workspaces); i++)
-            wanted.add(wm.get_workspace_by_index(i));
+        const wanted = new Set(this._leaving.keys());
+        for (const workspace of [this._libraryWorkspace, this._detailWorkspace]) {
+            if (workspace)
+                wanted.add(workspace);
+        }
+        const away = (this._libraryClaimsWorkspace() && this._libraryWorkspace) ||
+            this._detailWorkspace || (!this._libraryOnSurface() && this._picked);
+        if (away && this._origin)
+            wanted.add(this._origin);
         this._keepOnly(wanted);
     }
 
@@ -569,7 +543,7 @@ export class MediaLibrariesApp {
             if (!ws || ws._keepAliveId)
                 continue;
             ws._keepAliveId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, GLib.MAXUINT32, () => GLib.SOURCE_CONTINUE);
-            GLib.Source.set_name_by_id(ws._keepAliveId, '[media-libraries] keep section workspace');
+            GLib.Source.set_name_by_id(ws._keepAliveId, '[media-libraries] keep workspace');
             this._keptAlive.push(ws);
         }
         // Let the shell fold the now-empty workspaces back up.
@@ -577,22 +551,20 @@ export class MediaLibrariesApp {
             Main.wm._workspaceTracker?._queueCheckWorkspaces?.();
     }
 
-    // A free workspace past Home, for a section or for the pane. Dynamic
-    // workspaces always end in an empty one, which is exactly what is wanted;
-    // holding it makes the shell add the next. With a fixed number, the first
-    // one past Home that nothing is using.
+    // A free workspace, for the library, the pane or a player: nothing of ours
+    // on it and no windows of its own. Dynamic workspaces always end in an
+    // empty one, which is exactly what is wanted; holding it makes the shell
+    // add the next. With a fixed number, the last one nothing is using.
     _claimWorkspace() {
         const wm = global.workspace_manager;
-        const taken = new Set(this._opened.values());
-        if (this._detailWorkspace)
-            taken.add(this._detailWorkspace);
-        const free = ws => ws && ws.index() > this._targetWorkspace() && !taken.has(ws) &&
-            !ws._keepAliveId && !ws.list_windows().some(w => !w.is_on_all_workspaces());
+        const taken = new Set([this._libraryWorkspace, this._detailWorkspace]);
+        const free = ws => ws && !taken.has(ws) && !ws._keepAliveId &&
+            !ws.list_windows().some(w => !w.is_on_all_workspaces());
         if (Meta.prefs_get_dynamic_workspaces()) {
             const last = wm.get_workspace_by_index(wm.n_workspaces - 1);
             return free(last) ? last : wm.append_new_workspace(false, global.get_current_time());
         }
-        for (let i = this._targetWorkspace() + 1; i < wm.n_workspaces; i++) {
+        for (let i = wm.n_workspaces - 1; i >= 0; i--) {
             const ws = wm.get_workspace_by_index(i);
             if (free(ws))
                 return ws;
@@ -613,11 +585,13 @@ export class MediaLibrariesApp {
         return workspace;
     }
 
-    // Let a claimed workspace go, once the slide away from it is over — the
+    // Let claimed workspaces go, once the slide away from them is over — the
     // shell must not be removing a workspace it is still animating from, and
-    // that slide still wants a picture of what it is leaving.
-    _releaseWorkspace(place, workspace) {
-        this._leaving = {key: place, workspace};
+    // that slide still wants a picture of what it is leaving (`_pictureFor`).
+    // `given` maps each to the place it was showing.
+    _releaseWorkspaces(given) {
+        for (const [workspace, place] of given)
+            this._leaving.set(workspace, place);
         if (this._closeTimer)
             GLib.source_remove(this._closeTimer);
         // The slide honours the animations toggle and slow-down factor, so
@@ -625,97 +599,149 @@ export class MediaLibrariesApp {
         this._closeTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
             adjustAnimationTime(WORKSPACE_SLIDE_TIME) + 50, () => {
                 this._closeTimer = 0;
-                this._leaving = null;
-                this._keepOnly(new Set(this._keptAlive.filter(ws => ws !== workspace)));
+                this._leaving.clear();
+                this._holdWorkspaces();
+                this._previews?.invalidate();
                 return GLib.SOURCE_REMOVE;
             });
     }
 
-    // Home menu -> a section. On its own workspace, made on the way if it is
-    // not open already and slid to — _onWorkspaceChanged puts the library on
-    // it; or, opening on the desktop, simply the page that is showing.
-    _openSection(key) {
-        if (this._busy)
-            return;
-        if (!this._libraryClaimsWorkspaces()) {
-            this._showSectionNow(key, {reveal: true});
-            return;
+    // Somewhere to land that is not ours, when where we came from has gone:
+    // the nearest workspace before the ones being given up, or failing that
+    // any other.
+    _landing(given) {
+        const wm = global.workspace_manager;
+        const first = Math.min(...given.map(ws => ws.index()));
+        for (let i = first - 1; i >= 0; i--) {
+            const ws = wm.get_workspace_by_index(i);
+            if (!given.includes(ws))
+                return ws;
         }
-        let workspace = this._opened.get(key);
-        if (!workspaceIsLive(workspace)) {
-            workspace = this._takeWorkspace(`the ${key} library`);
-            if (!workspace)
-                return;
-            this._opened.set(key, workspace);
+        for (let i = 0; i < wm.n_workspaces; i++) {
+            const ws = wm.get_workspace_by_index(i);
+            if (!given.includes(ws))
+                return ws;
         }
-        workspace.activate(global.get_current_time());
+        return null;
     }
 
-    // A section's shortcut: its library, wherever it opens, or — when that is
-    // what is up — the way back out, as its button is. A browser is pressed
-    // exactly as its button would be. On the surface it is the home menu's
-    // launcher from anywhere: the overview goes, and the page comes up on
-    // the home workspace or on the section's own; a second press goes Home,
-    // as the header's Home button does.
-    _onShortcut(key) {
-        if (!this._enabledSections().some(s => s.key === key))
-            return;
-        // A popup holds the keyboard for itself — a menu in the top bar, the
-        // detail pop-up — unless it is the modal library's panel, which the
-        // shortcut closes or switches as the section's button does.
-        if (Main.actionMode === Shell.ActionMode.POPUP &&
-            !(this._browser instanceof LibraryWindow && this._browser.state.key))
-            return;
+    // ------------------------------------------------------------------
+    // In and out
+    // ------------------------------------------------------------------
+
+    // The button, or the shortcut: the library, wherever it opens, or — when
+    // it is what is up — the way back out. A browser is pressed as its own
+    // button would be. On the surface the overview goes, and the library
+    // comes up on this workspace or on its own; pressed where the library is
+    // already up, it is put away again.
+    _toggleLibrary() {
         if (this._browser) {
-            this._browser.toggle(key);
+            this._browser.toggle(this._sectionKey);
             return;
         }
         if (!this._libraryOnSurface() || this._busy)
             return;
-        const wm = global.workspace_manager;
         const overview = Main.overview.visible;
-        const here = this._placeForWorkspace(wm.get_active_workspace());
-        if (here === key && this._mode === 'library' && !overview) {
-            this._goHome();
+        const here = this._placeForWorkspace(global.workspace_manager.get_active_workspace());
+        if (here && !overview) {
+            this._closeLibrary();
             return;
         }
         Main.overview.hide();
-        if (this._libraryClaimsWorkspaces()) {
-            if (here !== key)
-                this._openSection(key);
-            else if (this._mode !== 'library')
-                this._showSectionNow(key, {reveal: !overview});
+        this._openLibrary({reveal: !overview});
+    }
+
+    // The library up. In 'desktop' it is on the wallpaper of the workspace
+    // you are on, and moves here if it was up on another. In 'workspaces' it
+    // is on its own, claimed on the way if it is not held already, and slid
+    // to; `_onWorkspaceChanged` puts the page up as the slide begins, and
+    // the slide is the only transition. Either way, one already up where it
+    // is going is left as it was — a pick open in it included.
+    _openLibrary({reveal = true} = {}) {
+        const wm = global.workspace_manager;
+        const active = wm.get_active_workspace();
+        if (!this._libraryClaimsWorkspace()) {
+            if (this._libraryWorkspace !== active || this._shown !== LIBRARY) {
+                this._libraryWorkspace = active;
+                this._holdWorkspaces();
+                this._showLibraryNow({reveal});
+            }
+            this._syncVisibility(true);
+            this._previews?.invalidate();
             return;
         }
-        // Every section shares Home: the page first, then the slide to it.
-        const home = wm.get_workspace_by_index(this._targetWorkspace());
-        const sliding = home && wm.get_active_workspace() !== home;
-        this._showSectionNow(key, {reveal: !sliding && !overview});
-        home?.activate(global.get_current_time());
+        let workspace = this._libraryWorkspace;
+        if (!workspaceIsLive(workspace)) {
+            workspace = this._takeWorkspace('the library');
+            if (!workspace)
+                return;
+            this._libraryWorkspace = workspace;
+        }
+        if (workspace === active) {
+            if (this._shown !== LIBRARY)
+                this._showLibraryNow({reveal});
+            this._syncVisibility(true);
+            return;
+        }
+        this._origin = active;
+        this._holdWorkspaces();
+        workspace.activate(global.get_current_time());
+    }
+
+    // The library put away, and whatever of it was up with it: the popup,
+    // the browser, a pick on a page or a workspace of its own. Whatever was
+    // claimed is given up behind the slide back to where it was opened from.
+    _closeLibrary() {
+        if (this._busy)
+            return;
+        this._dialog?.popdown();
+        this._browser?.close();
+        const wm = global.workspace_manager;
+        const active = wm.get_active_workspace();
+        const given = new Map();
+        if (this._libraryClaimsWorkspace() && workspaceIsLive(this._libraryWorkspace))
+            given.set(this._libraryWorkspace, LIBRARY);
+        if (workspaceIsLive(this._detailWorkspace))
+            given.set(this._detailWorkspace, DETAIL);
+        // In 'desktop' the library holds no workspace of its own, so a pick
+        // on one goes back to the workspace the library was brought up on.
+        const home = this._libraryOnSurface() && !this._libraryClaimsWorkspace()
+            ? this._libraryWorkspace : this._origin;
+
+        this._picked = null;
+        this._libraryWorkspace = this._detailWorkspace = null;
+
+        if (given.has(active)) {
+            const claimed = [...given.keys()];
+            const to = workspaceIsLive(home) && !given.has(home) ? home : this._landing(claimed);
+            to?.activate(global.get_current_time());
+        }
         this._syncVisibility(true);
+        if (given.size)
+            this._releaseWorkspaces(given);
+        this._holdWorkspaces();
         this._previews?.invalidate();
     }
 
-    // Is a library what has the keyboard — a pop-up of ours, a browser on
+    // The shortcut is the button's press, wherever the library opens.
+    _onShortcut() {
+        // A popup holds the keyboard for itself — a menu in the top bar, the
+        // detail pop-up — unless it is the modal library's panel, which the
+        // shortcut closes as the button does.
+        if (Main.actionMode === Shell.ActionMode.POPUP &&
+            !(this._browser instanceof LibraryWindow && this._browser.isShowing))
+            return;
+        this._toggleLibrary();
+    }
+
+    // Is the library what has the keyboard — a pop-up of ours, a browser on
     // show, or the surface on a workspace no window has the focus of? A
-    // controller is only acted on while one is.
+    // controller is only acted on while it is.
     _controlsActive() {
         if (this._dialog?.isOpen || this._browser?.isShowing)
             return true;
         return !!this._container?.visible && this._onTarget() && !Main.overview.visible &&
             !global.display.focus_window && Main.modalCount === 0;
-    }
-
-    // Home, from a remote or a controller: all the way out — to the home
-    // menu on the surface, to the desktop from a browser or a pop-up.
-    _controlsHome() {
-        this._dialog?.popdown();
-        if (this._browser) {
-            this._browser.close();
-            return;
-        }
-        if (this._libraryOnSurface() && this._mode !== HOME)
-            this._goHome();
     }
 
     // Home on a controller with nothing of ours up: the library, opened, when
@@ -725,86 +751,41 @@ export class MediaLibrariesApp {
         if (global.display.focus_window || Main.modalCount > 0)
             return;
         if (this._browser) {
-            const first = this._enabledSections().find(s => this._sections[s.key]?.length);
-            if (first)
-                this._browser.open(first.key);
+            this._browser.open(this._sectionKey);
             return;
         }
-        if (!this._libraryOnSurface())
-            return;
-        const home = global.workspace_manager.get_workspace_by_index(this._targetWorkspace());
-        home?.activate(global.get_current_time());
-        this._syncVisibility(true);
+        if (this._libraryOnSurface())
+            this._openLibrary();
     }
 
-    // The way back out to the home menu, from a section's library or from a
-    // pane that has no library here to go back to. Whatever workspace was
-    // claimed on the way in is given up behind us.
-    //
-    // With the library browsed elsewhere there is no home menu: "home" is the
-    // workspace the pick was made on, with the browser back on that section.
-    _goHome() {
-        if (this._busy)
-            return;
-        const wm = global.workspace_manager;
-        const key = this._sectionKey;
-        const browsed = !this._libraryOnSurface();
-
-        // The pane's own workspace goes first, whichever library we came from.
-        const detailWorkspace = this._detailWorkspace;
-        this._picked = null;
-        this._detailWorkspace = null;
-
-        const to = browsed
-            ? (workspaceIsLive(this._origin) ? this._origin : wm.get_workspace_by_index(0))
-            : wm.get_workspace_by_index(this._targetWorkspace());
-        if (!to)
-            return;
-
-        const sliding = global.workspace_manager.get_active_workspace() !== to;
-        if (browsed)
-            this._browser?.open(key);
-        else
-            this._showHomeNow({reveal: !sliding});
-
-        // Forgotten now, so Home arrives without its dot.
-        const sectionWorkspace = this._opened.get(key);
-        if (sectionWorkspace)
-            this._opened.delete(key);
-
-        const leaving = detailWorkspace ?? sectionWorkspace;
-        to.activate(global.get_current_time());
-        // Left without a change of workspace, when that is where it was opened.
-        this._syncVisibility(true);
-        if (leaving)
-            this._releaseWorkspace(detailWorkspace ? DETAIL : key, leaving);
-        else
-            this._previews?.invalidate();
+    // Everything that goes to the preferences goes out of the library first,
+    // or the overview or a panel of ours would be over the window.
+    _openSettings() {
+        this._dialog?.popdown();
+        this._browser?.close();
+        this._extension.openPreferences();
     }
 
-    // A workspace going can take an open section with it, and shifts the
+    // A workspace going can take the library or a pick with it, and shifts the
     // index of everything after it — so what the active one shows is asked
     // again. Nothing on the surface needs building for that.
     _onWorkspaceRemoved() {
-        this._applyWorkspaceMode();
-        this._home?.setOpened(this._opened.keys());
+        this._holdWorkspaces();
         this._previews?.invalidate();
         this._onWorkspaceChanged();
     }
 
     _onWorkspaceChanged() {
         const place = this._placeForWorkspace(global.workspace_manager.get_active_workspace());
-        // Against `_shown`, not `_place`: after a rebuild they are the same
-        // and nothing is on the stack, which is exactly when it must be put
-        // back. A workspace that is not ours leaves what is there alone — the
-        // surface is hidden on it either way.
+        // Against `_shown`: after a rebuild nothing is on the stack, which is
+        // exactly when the page must be put back. A workspace that is not
+        // ours leaves what is there alone — the surface is hidden on it
+        // either way.
         if (place && place !== this._shown) {
-            if (place === HOME)
-                this._showHomeNow();
-            else if (place === DETAIL)
+            if (place === DETAIL)
                 this._showDetailNow();
             else
-                this._showSectionNow(place);
+                this._showLibraryNow();
         }
         this._syncVisibility(true);
     }
@@ -831,11 +812,12 @@ export class MediaLibrariesApp {
     }
 
     // The pane onto the surface, wherever this pick is set to open it. Shared
-    // by a pick made in a browser and one made on a grid of ours that is not
-    // in the pane's way (`_detailInPlace` is the one that is).
+    // by a pick made in a browser and one made on the grid of ours when that
+    // is not in the pane's way (`_detailInPlace` is when it is).
     _showDetail(key, item) {
         this._picked = {key, item};
         if (!this._detailClaimsWorkspace()) {
+            this._holdWorkspaces();
             this._showDetailNow({reveal: true});
             this._syncVisibility(true);
             this._previews?.invalidate();
@@ -854,81 +836,66 @@ export class MediaLibrariesApp {
             }
             this._detailWorkspace = workspace;
         }
+        this._holdWorkspaces();
         // In place before the slide that brings it in.
         this._showDetailNow();
         workspace.activate(global.get_current_time());
         this._syncVisibility(true);
     }
 
-    // Every page the stack holds: one per section, plus the pane's own.
-    _allPages() {
-        const pages = [...this._pages.values()];
-        if (this._detailPage)
-            pages.push(this._detailPage);
-        return pages;
-    }
-
-    // The current page back to its library, whatever was in flight on it.
+    // The library's page back to its grid, whatever was in flight on it.
     _resetViews() {
         if (!this._container)
             return;
         this._overlay.destroy_all_children();
         this._detail?.actor.remove_all_transitions();
         this._detail?.actor.hide();
-        const page = this._pages.get(this._sectionKey);
-        const grid = page?.library;
+        const grid = this._library?.currentView;
         if (grid) {
             grid.remove_all_transitions();
             grid.set_scale(1, 1);
             grid.opacity = 255;
             grid.show();
         }
-        page?.header.setLibraryMode(false);
+        this._library?.header.setLibraryMode(false);
         this._busy = false;
     }
 
-    // Jump straight to a section's library, abandoning any open detail view.
-    // The shell's slide is the transition when the workspace changes, so the
-    // page is simply there when it lands; `reveal` staggers it in, for the
-    // first build and for a move that no slide carries.
-    _showSectionNow(key, {reveal = false} = {}) {
-        if (!this._container || !this._libraryOnSurface())
+    // Straight to the library, abandoning any pick open in it. The shell's
+    // slide is the transition when the workspace changes, so the page is
+    // simply there when it lands; `reveal` staggers it in, for a move that no
+    // slide carries.
+    _showLibraryNow({reveal = false} = {}) {
+        if (!this._container || !this._library)
             return;
         this._resetViews();
-        this._home?.actor.hide();
         this._mode = 'library';
-        this._sectionKey = key;
-        const page = this._page(key);
-        for (const other of this._allPages())
-            other.actor.visible = other === page;
-        if (reveal)
-            page.library?.reveal();
-        this._place = this._shown = key;
+        this._detailPage?.actor.hide();
+        this._library.actor.show();
+        this._library.show(this._sectionKey, {reveal});
+        this._shown = LIBRARY;
     }
 
     // The pane on a page of its own, which is what it gets whenever it is not
-    // taking the place of a grid of ours: put there outright, since the shell's
+    // taking the place of the grid: put there outright, since the shell's
     // slide — or the reveal, when there is no slide — is what brings it in.
     _showDetailNow({reveal = false} = {}) {
         if (!this._container || !this._picked)
             return;
         this._resetViews();
-        this._home?.actor.hide();
         this._mode = 'detail';
         const {key, item} = this._picked;
-        this._sectionKey = key;
         const section = sectionByKey(key);
         const page = this._detailPageFor(section);
-        for (const other of this._allPages())
-            other.actor.visible = other === page;
-        this._attachDetail(page);
+        this._library?.actor.hide();
+        page.actor.show();
+        this._attachDetail(page.stack);
         this._detail.populate(item, section);
         const actor = this._detail.actor;
         actor.remove_all_transitions();
         actor.opacity = 255;
         actor.translation_y = 0;
         actor.show();
-        page.header.setDetailMode(false);
         // Landing without a workspace change, so no slide brings it in: the
         // same rise the in-place flight gives it, and no curve of its own.
         if (reveal) {
@@ -941,37 +908,21 @@ export class MediaLibrariesApp {
                 mode: Ease.OUT_EXPO,
             });
         }
-        this._place = this._shown = DETAIL;
+        this._shown = DETAIL;
     }
 
     // The detail pane is shared, and moves into whichever page wants it: its
-    // own, or the section page whose grid it is replacing.
-    _attachDetail(page) {
+    // own, or the library's when it is replacing the grid.
+    _attachDetail(stack) {
         const actor = this._detail?.actor;
-        if (!actor || actor.get_parent() === page.stack)
+        if (!actor || actor.get_parent() === stack)
             return;
         actor.get_parent()?.remove_child(actor);
-        page.stack.add_child(actor);
-    }
-
-    // The same for the home menu.
-    _showHomeNow({reveal = false} = {}) {
-        if (!this._container || !this._home)
-            return;
-        this._resetViews();
-        for (const page of this._allPages())
-            page.actor.hide();
-        this._home.actor.show();
-        this._home.setOpened(this._opened.keys());
-        if (reveal)
-            this._home.reveal();
-        this._mode = HOME;
-        this._place = this._shown = HOME;
+        stack.add_child(actor);
     }
 
     // What a section's files open with is that section's own setting; a
-    // folder, and anything of a section with no such setting, goes to the
-    // system default.
+    // folder goes to the system default.
     //
     // An episode or a film picks up where it was left, once the player has
     // it; the watcher marks it watched when playback gets far enough.
@@ -1005,7 +956,7 @@ export class MediaLibrariesApp {
     }
 
     // ------------------------------------------------------------------
-    // Building the surface
+    // Building
     // ------------------------------------------------------------------
     _build() {
         // Every rounded surface reads its radius as it is constructed, so the
@@ -1016,6 +967,22 @@ export class MediaLibrariesApp {
         // Recorded first, whatever is built below: a geometry change compares
         // against it, and without it every 'workareas-changed' would rebuild.
         const bounds = this._builtBounds = this._bounds();
+
+        // With no section switched on there is no library to open, and no
+        // button to open it with.
+        const sections = this._enabledSections();
+        this._holdWorkspaces();
+        if (!sections.length) {
+            this._button.detach();
+            this._libraryWorkspace = this._detailWorkspace = null;
+            this._picked = null;
+            this._holdWorkspaces();
+            return;
+        }
+        // The tab it was left on, or the first with anything in it.
+        if (!sections.some(s => s.key === this._sectionKey))
+            this._sectionKey = (sections.find(s => this._sections[s.key]?.length) ?? sections[0]).key;
+        this._button.attach();
 
         // A pick that pops up has a pane of its own, in the folder's panel;
         // it hosts itself over whatever it is opened from.
@@ -1030,15 +997,18 @@ export class MediaLibrariesApp {
 
         // One way of browsing at a time: a browser of its own — the library
         // as a second application menu in the overview, or in a panel popped
-        // out of its button — or pages here.
+        // out of its button — or a page here.
         if (!this._libraryOnSurface()) {
             const Browser = this._libraryMode() === 'modal' ? LibraryWindow : MediaMenu;
             this._browser = new Browser({
-                sections: this._enabledSections(),
+                sections,
                 itemsFor: key => this._sections[key] ?? [],
                 onActivate: (key, item, tile) => this._openPicked(key, item, tile),
                 columns: this._columns(),
                 rows: this._rows(),
+                button: this._button,
+                onSwitch: key => (this._sectionKey = key),
+                onOpenSettings: () => this._openSettings(),
             });
             this._browser.enable();
         }
@@ -1073,8 +1043,8 @@ export class MediaLibrariesApp {
         this._stack = new St.Widget({layout_manager: new Clutter.BinLayout(), x_expand: true, y_expand: true});
         this._container.add_child(this._stack);
 
-        // Tab and the arrow keys move between launchers, tiles, rows and
-        // buttons because what holds them is a focus group, as the shell's own
+        // Tab and the arrow keys move between tabs, tiles, rows and buttons
+        // because what holds them is a focus group, as the shell's own
         // dialogs and menus are — St does the walking. The group is the stack
         // and not the surface around it: a focus group that can take the
         // keyboard itself yields the focus rather than passing it on
@@ -1094,7 +1064,7 @@ export class MediaLibrariesApp {
 
         const onSurface = this._libraryOnSurface();
         if (onSurface)
-            this._buildHome(bounds);
+            this._buildLibrary(bounds, sections);
 
         // Clones in flight between the two views live above both.
         this._overlay = new Clutter.Actor({x_expand: true, y_expand: true});
@@ -1107,122 +1077,57 @@ export class MediaLibrariesApp {
             global.window_group.insert_child_at_index(this._container, 0);
 
         // What the active workspace shows, or — on a workspace that is not
-        // ours — what was last asked for, so that sliding onto one of ours
-        // finds a page built rather than a blank surface.
-        const place = this._placeForWorkspace(global.workspace_manager.get_active_workspace()) ??
-            (onSurface ? this._place ?? HOME : this._picked ? DETAIL : null);
-        if (place === DETAIL)
-            this._showDetailNow({reveal: true});
-        else if (place && place !== HOME)
-            this._showSectionNow(place, {reveal: true});
-        else if (place === HOME)
-            this._showHomeNow({reveal: true});
+        // ours — the page it would be, so that sliding onto one of ours finds
+        // it built rather than a blank surface.
+        const place = this._placeForWorkspace(global.workspace_manager.get_active_workspace());
+        if (place === DETAIL || (!place && !onSurface && this._picked))
+            this._showDetailNow({reveal: !!place});
+        else if (onSurface)
+            this._showLibraryNow({reveal: !!place});
 
         // The overview never shows this surface — it builds its own wallpaper
         // for every workspace preview — so each gets a clone of its page.
         this._previews = new OverviewPreview({
             placeForWorkspace: workspace => this._pictureFor(workspace),
-            sourceFor: place => this._actorForPlace(place),
+            sourceFor: where => this._actorForPlace(where),
             bounds,
         });
         this._previews.enable();
 
-        // Only the section pages are worth building ahead: the pane's page is
-        // a header and nothing else until something is picked.
+        // The pane's page is a header and nothing else until something is
+        // picked, so only the library's tabs are worth building ahead.
         if (onSurface)
-            this._prebuildPages();
+            this._library.prebuild();
     }
 
-    // The home menu has the whole surface to itself, header included.
-    _buildHome(bounds) {
-        this._home = new HomeView({
-            sections: this._enabledSections(),
+    // The library's page: the tabs over the grids, with the way to the
+    // preferences and the way out at the header's far end.
+    _buildLibrary(bounds, sections) {
+        const {width, height} = bounds;
+        const settings = createIconButton('preferences-system-symbolic', {accessibleName: 'Settings'});
+        settings.connect('clicked', () => this._openSettings());
+        const close = createIconButton('window-close-symbolic', {accessibleName: 'Close'});
+        close.connect('clicked', () => this._closeLibrary());
+        this._library = new LibraryView({
+            sections,
             itemsFor: key => this._sections[key] ?? [],
-            onActivate: key => this._openSection(key),
-            onOpenSettings: () => this._extension.openPreferences(),
-        });
-        this._home.setSize(bounds.width, bounds.height);
-        // A clone lays a hidden source out at the size it asks for, and left
-        // to itself the menu asks for no more than its launchers take up.
-        this._home.actor.set_size(bounds.width, bounds.height);
-        this._home.build(this._opened.keys());
-        this._home.actor.hide();
-        // In the stack, with the pages: that is the focus group.
-        this._stack.add_child(this._home.actor);
-    }
-
-    // The page for a section, built the first time it is asked for.
-    _page(key = this._sectionKey) {
-        let page = this._pages.get(key);
-        if (!page) {
-            page = this._buildPage(key);
-            this._pages.set(key, page);
-        }
-        return page;
-    }
-
-    // A page is a couple of hundred actors, which is a dropped frame if it is
-    // built on the first frame of the workspace slide that wants it. So the
-    // enabled ones are built ahead, one to an idle, while nothing is moving.
-    _prebuildPages() {
-        const waiting = this._enabledSections().map(s => s.key);
-        this._prebuildIdle = GLib.idle_add(GLib.PRIORITY_LOW, () => {
-            const key = waiting.find(k => !this._pages.has(k));
-            if (key)
-                this._page(key);
-            if (waiting.some(k => !this._pages.has(k)))
-                return GLib.SOURCE_CONTINUE;
-            this._prebuildIdle = 0;
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _buildPage(key) {
-        const {width, height} = this._builtBounds;
-        const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-        const section = sectionByKey(key);
-        const items = this._sections[key] ?? [];
-        // Sized outright, as the home menu is, for the overview's clones.
-        const actor = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, width, height, visible: false});
-        const header = createHeader({
-            title: section.title,
-            subtitle: libraryCountLabel(items.length),
+            active: this._sectionKey,
+            width,
+            height,
+            columns: this._columns(),
+            rows: this._rows(),
+            onActivate: (key, item, tile) => this._openItem(key, item, tile),
+            onSwitch: key => (this._sectionKey = key),
             onBack: () => this._goBack(),
-            onHome: () => this._goHome(),
+            end: [settings, close],
+            onOpenSettings: () => this._openSettings(),
         });
-        actor.add_child(header.actor);
-
-        // Unclipped on purpose: the library grid overhangs it slightly so
-        // hovered edge tiles are not cut off.
-        const stack = new St.Widget({layout_manager: new Clutter.BinLayout(), x_expand: true, y_expand: true});
-        actor.add_child(stack);
-
-        // A section page is only ever built for a library of ours; a section
-        // with nothing in it says so instead of showing an empty grid.
-        let library = null;
-        if (items.length) {
-            library = createMediaView({
-                section,
-                items,
-                width,
-                height: height - HEADER_ALLOWANCE * scale,
-                columns: this._columns(),
-                rows: this._rows(),
-                onActivate: (_key, item, tile) => this._openItem(item, tile),
-            });
-            stack.add_child(library);
-        } else {
-            stack.add_child(createEmptyState({
-                icon: section.icon,
-                title: `No ${section.title.toLowerCase()} yet`,
-                hint: section.emptyHint,
-                actionLabel: 'Open Settings',
-                onAction: () => this._extension.openPreferences(),
-            }));
-        }
-
-        this._stack.add_child(actor);
-        return {key, actor, header, stack, library};
+        // Sized outright: a clone lays a hidden source out at the size it asks
+        // for, and the overview's pictures of the workspace are clones of it.
+        this._library.actor.set_size(width, height);
+        this._library.actor.hide();
+        // In the stack: that is the focus group.
+        this._stack.add_child(this._library.actor);
     }
 
     // The pane's own page: a header over the shared pane, and no grid. One
@@ -1235,12 +1140,7 @@ export class MediaLibrariesApp {
                 orientation: Clutter.Orientation.VERTICAL,
                 width, height, visible: false,
             });
-            const header = createHeader({
-                title: section.title,
-                subtitle: '',
-                onBack: () => this._goBack(),
-                onHome: () => this._goHome(),
-            });
+            const header = createHeader({sections: [], onBack: () => this._goBack()});
             actor.add_child(header.actor);
             const stack = new St.Widget({
                 layout_manager: new Clutter.BinLayout(),
@@ -1248,29 +1148,23 @@ export class MediaLibrariesApp {
             });
             actor.add_child(stack);
             this._stack.add_child(actor);
-            this._detailPage = {key: DETAIL, actor, header, stack, library: null};
+            this._detailPage = {actor, header, stack};
         }
-        this._detailPage.header.setTitle(section.title);
+        this._detailPage.header.setDetailMode(section.title);
         return this._detailPage;
     }
 
     // The actor the overview should clone for a place.
     _actorForPlace(place) {
-        if (place === HOME)
-            return this._home?.actor;
-        if (place === DETAIL)
-            return this._detailPage?.actor;
-        return this._page(place).actor;
+        return place === DETAIL ? this._detailPage?.actor : this._library?.actor;
     }
 
-    // What the shell's picture of a workspace shows. A section or a pane on
-    // its way out is no longer open, but the slide it leaves by still draws it.
+    // What the shell's picture of a workspace shows. A workspace on its way
+    // out is no longer ours, but the slide it leaves by still draws it.
     _pictureFor(workspace) {
         if (!workspace)
             return null;
-        if (this._leaving?.workspace === workspace)
-            return this._leaving.key;
-        return this._placeForWorkspace(workspace);
+        return this._leaving.get(workspace) ?? this._placeForWorkspace(workspace);
     }
 
     // The surface fills the monitor's work area (so docks and panels from
@@ -1293,28 +1187,28 @@ export class MediaLibrariesApp {
     // ------------------------------------------------------------------
     // Navigation
     // ------------------------------------------------------------------
-    // A grid of ours -> an item. The flight below is what a pick looks like
+    // The grid of ours -> an item. The flight below is what a pick looks like
     // only when the pane lands on this very workspace, in the grid's place:
     // the artwork flies to the hero slot while the grid recedes and the pane
     // rises. A pick that pops up zooms the panel out of the tile and leaves
     // the page as it is; one that opens somewhere else goes there instead.
-    async _openItem(item, tile) {
+    async _openItem(key, item, tile) {
         if (this._busy || this._mode !== 'library')
             return;
+        const section = sectionByKey(key);
         if (this._dialog) {
-            this._dialog.popup(tile, item, sectionByKey(this._sectionKey));
+            this._dialog.popup(tile, item, section);
             return;
         }
         if (!this._detailInPlace()) {
-            this._showDetail(this._sectionKey, item);
+            this._showDetail(key, item);
             return;
         }
         this._busy = true;
         this._mode = 'detail';
 
-        const section = sectionByKey(this._sectionKey);
-        const page = this._page();
-        this._attachDetail(page);
+        const library = this._library;
+        this._attachDetail(library.stack);
         const art = tile.artwork;
         const from = rectIn(art, this._container);
         this._heroFrom = {item, from};
@@ -1329,9 +1223,9 @@ export class MediaLibrariesApp {
         hero.opacity = 0;
         const to = rectIn(hero, this._container);
 
-        page.header.setDetailMode(true);
+        library.header.setDetailMode(section.title, true);
 
-        const grid = page.library;
+        const grid = library.currentView;
         grid.set_pivot_point(0.5, 0.5);
         grid.ease({
             opacity: 0,
@@ -1363,41 +1257,49 @@ export class MediaLibrariesApp {
 
     // Detail -> library. In place, it is the flight mirrored: the hero flies
     // back to its tile while the grid comes forward again. From a pane that
-    // is somewhere of its own, it is a move back to wherever the library is —
-    // the section's workspace or page, or, with the library browsed
-    // elsewhere, the workspace the pick was made on (which is `_goHome`).
+    // is somewhere of its own, it is a move back to wherever the library is:
+    // its workspace, or — browsed elsewhere — the workspace the pick was made
+    // on, with the browser open again on the pick's tab.
     async _goBack() {
         if (!this._detailInPlace()) {
-            if (!this._libraryOnSurface()) {
-                this._goHome();
-                return;
-            }
             if (this._busy)
                 return;
-            const key = this._sectionKey;
-            const detailWorkspace = this._detailWorkspace;
+            const wm = global.workspace_manager;
+            const key = this._picked?.key ?? this._sectionKey;
+            const detailWorkspace = workspaceIsLive(this._detailWorkspace) ? this._detailWorkspace : null;
             this._picked = null;
             this._detailWorkspace = null;
-            if (this._libraryClaimsWorkspaces()) {
-                // Back to the section's own workspace, opening it again if it
-                // was never claimed (the pane was reached from the home menu
-                // with the library on a workspace it no longer holds). The
-                // slide is the transition; `_openSection` queues no reveal.
-                this._openSection(key);
+            this._sectionKey = key;
+
+            // Where the library is, or was brought up from; one that has gone
+            // since is found again from where we land.
+            let to = this._libraryOnSurface() ? this._libraryWorkspace : this._origin;
+            if (!workspaceIsLive(to) || to === detailWorkspace)
+                to = workspaceIsLive(this._origin) && this._origin !== detailWorkspace ? this._origin : null;
+            if (!to && detailWorkspace)
+                to = this._landing([detailWorkspace]);
+            to ??= wm.get_active_workspace();
+
+            if (!this._libraryOnSurface()) {
+                this._browser?.open(key);
+            } else if (this._libraryClaimsWorkspace() && !workspaceIsLive(this._libraryWorkspace)) {
+                // Its workspace has gone: claimed again, from where we land.
+                to.activate(global.get_current_time());
+                this._openLibrary();
+                if (detailWorkspace)
+                    this._releaseWorkspaces(new Map([[detailWorkspace, DETAIL]]));
+                return;
             } else {
-                // Every section shares the home workspace, which is where the
-                // pane was opened from and so where Back goes.
-                const wm = global.workspace_manager;
-                const home = wm.get_workspace_by_index(this._targetWorkspace());
-                const sliding = home && wm.get_active_workspace() !== home;
-                this._showSectionNow(key, {reveal: !sliding});
-                home?.activate(global.get_current_time());
+                this._libraryWorkspace = to;
+                this._showLibraryNow({reveal: to === wm.get_active_workspace()});
             }
+            to.activate(global.get_current_time());
             this._syncVisibility(true);
             if (detailWorkspace)
-                this._releaseWorkspace(DETAIL, detailWorkspace);
+                this._releaseWorkspaces(new Map([[detailWorkspace, DETAIL]]));
             else
                 this._previews?.invalidate();
+            this._holdWorkspaces();
             return;
         }
         if (this._busy || this._mode !== 'detail')
@@ -1407,12 +1309,12 @@ export class MediaLibrariesApp {
 
         const detailActor = this._detail.actor;
         const hero = this._detail.hero;
-        const page = this._page();
-        const grid = page.library;
+        const library = this._library;
+        const grid = library.currentView;
         const remembered = this._heroFrom;
-        const tile = remembered ? page.library.tileFor(remembered.item.id) : null;
+        const tile = remembered ? grid.tileFor(remembered.item.id) : null;
 
-        page.header.setLibraryMode(true);
+        library.header.setLibraryMode(true);
 
         grid.set_pivot_point(0.5, 0.5);
         grid.set_scale(POP_SCALE, POP_SCALE);
@@ -1451,8 +1353,9 @@ export class MediaLibrariesApp {
     // Keyboard
     // ------------------------------------------------------------------
     // Escape backs out a level, as it does everywhere in the shell: out of an
-    // item to the library, out of a library to the home menu. Everything else
-    // — Tab, the arrows, Enter on a tile — is St's own focus handling.
+    // item to the library, out of the library altogether. Everything else —
+    // Tab, the arrows, Enter on a tile — is St's own focus handling, and the
+    // step between the tabs and the grid is the library view's.
     _onKeyPress(event) {
         // A key a remote or a binding of the user's makes something else.
         if (handleBoundKey(event))
@@ -1461,10 +1364,8 @@ export class MediaLibrariesApp {
         if (symbol === Clutter.KEY_Escape) {
             if (this._mode === 'detail')
                 this._goBack();
-            else if (this._mode === 'library')
-                this._goHome();
             else
-                return Clutter.EVENT_PROPAGATE;
+                this._closeLibrary();
             return Clutter.EVENT_STOP;
         }
         // Nothing is focused until a navigation key asks for it — as the app
@@ -1472,28 +1373,17 @@ export class MediaLibrariesApp {
         // the focus manager walks the group on its own.
         if (NAVIGATION_KEYS.includes(symbol) &&
             global.stage.get_key_focus() === this._container) {
-            // A grid says where its keyboard starts; anything else hands the
+            // The library says where its keyboard starts; the pane hands the
             // first key to St, which finds the first thing that can take it.
-            const target = this._focusTarget();
-            if (target?.focusFirst?.() ||
-                target?.navigate_focus(null, St.DirectionType.TAB_FORWARD, false))
+            if (this._mode === 'detail'
+                ? this._detail?.actor.navigate_focus(null, St.DirectionType.TAB_FORWARD, false)
+                : this._library?.focusFirst())
                 return Clutter.EVENT_STOP;
         }
         return Clutter.EVENT_PROPAGATE;
     }
 
-    // What the first key lands on: the launchers, the grid, or the detail
-    // pane's first button — the thing being browsed, not the header above it.
-    _focusTarget() {
-        if (this._mode === HOME)
-            return this._home?.actor;
-        if (this._mode === 'detail')
-            return this._detail?.actor;
-        const page = this._pages.get(this._sectionKey);
-        return page?.library ?? page?.actor;
-    }
-
-    // Is the active workspace one of ours — the home menu, or a section?
+    // Is the active workspace one of ours?
     _onTarget() {
         return this._placeForWorkspace(global.workspace_manager.get_active_workspace()) !== null;
     }
@@ -1528,9 +1418,13 @@ export class MediaLibrariesApp {
     // Visibility
     // ------------------------------------------------------------------
     _syncVisibility(animate) {
+        const onTarget = this._onTarget();
+        // A browser lights the button itself; on the surface it is lit while
+        // the library, or a pick of it, is what this workspace shows.
+        if (this._libraryOnSurface())
+            this._button.sync(onTarget);
         if (!this._container)
             return;
-        const onTarget = this._onTarget();
         this._syncKeyFocus(onTarget);
         if (!animate) {
             this._container.visible = onTarget;

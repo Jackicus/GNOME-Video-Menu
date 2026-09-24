@@ -94,7 +94,7 @@
             </choices>
             <default>"menu"</default>
             <summary>Where the library opens</summary>
-            <description>Where a section's grid is drawn. "desktop" and "workspaces" both draw it on the wallpaper, under a home menu of launchers: "desktop" keeps every section on the one workspace, "workspaces" gives each section it opens a workspace of its own and slides to it. "menu" puts a grid per section in the overview, beside the applications, opened from the buttons next to Show Apps. "modal" pops one up in the folder's panel over the desktop, from the same buttons, closed with Escape, a click away, or the button again. Only one is ever built. Where a picked item opens is detail-opens-in, which is read independently of this.</description>
+            <description>Where the library — a tab per section over its grid — is drawn. Whichever it is, the button next to Show Apps opens it and closes it again. "desktop" draws it on the wallpaper of the workspace the button is pressed on; "workspaces" draws it on the wallpaper of a workspace of its own and slides to it, giving that workspace up when it is closed. "menu" puts it in the overview, beside the applications. "modal" pops it up in the folder's panel over the desktop, closed with Escape, a click away, or the button again. Only one is ever built. Where a picked item opens is detail-opens-in, which is read independently of this.</description>
         </key>
         <key name="detail-opens-in" type="s">
             <choices>
@@ -108,19 +108,14 @@
             <description>Where the detail pane of a picked item is drawn. "desktop" puts it on the wallpaper of the workspace the pick was made on — in place of the grid, when the library is drawn there too. "workspaces" puts it on a workspace of its own and slides to it. "menu" pops it up the way the shell opens an app folder, zooming out of the tile, over whatever the pick was made on, and it goes when that tile does. "modal" is the same panel hosted over the desktop always, outliving the overview and a change of workspace until Escape or a click away closes it.</description>
         </key>
 
-        <!-- A keyboard shortcut per section, grabbed by the shell the way its
+        <!-- The library's keyboard shortcut, grabbed by the shell the way its
              own are (Main.wm.addKeybinding), so the same accelerator strings
-             GNOME's keybinding settings hold. All empty by default: nothing of
-             the system's is taken until one is set. -->
-        <key name="tv-shows-shortcut" type="as">
+             GNOME's keybinding settings hold. Empty by default: nothing of the
+             system's is taken until one is set. -->
+        <key name="library-shortcut" type="as">
             <default>[]</default>
-            <summary>Open TV shows</summary>
-            <description>Opens the TV shows library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
-        </key>
-        <key name="films-shortcut" type="as">
-            <default>[]</default>
-            <summary>Open films</summary>
-            <description>Opens the films library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
+            <summary>Open the library</summary>
+            <description>Opens the library wherever library-opens-in puts it, as the button next to Show Apps does, and closes it again when it is what is up. Empty is no shortcut.</description>
         </key>
 
         <!-- Remotes, controllers and keys of the user's own (lib/actions.js,
@@ -218,13 +213,6 @@
             <default>true</default>
             <summary>Read game controllers</summary>
             <description>Navigate a library with a game controller, through libmanette. Only acted on while a library is on screen, except Home, which opens it when no window has the keyboard.</description>
-        </key>
-
-        <!-- Desktop placement -->
-        <key name="workspace-index" type="i">
-            <default>0</default>
-            <summary>Workspace index</summary>
-            <description>0-indexed workspace that carries the home menu, when the library opens in "desktop" or "workspaces".</description>
         </key>
 
         <!-- Appearance: one set of style settings, shared by all three views -->

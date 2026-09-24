@@ -85,80 +85,6 @@ export function createArtwork({path, title, icon, width, height, styleClass = 'm
     return art;
 }
 
-// A home-menu launcher: a large rounded card carrying the section's icon over
-// a wash of its own artwork, with the title and item count beneath and a dot
-// that lights while the section's workspace is open, like a running app's.
-//
-// The button itself is the shell's raised folder tile (`app-folder`), so the
-// normal, hover, focus and pressed states — and the padding around the card —
-// are the theme's (`_drawing.scss` tile_button($raised: true)).
-export function createLauncher({section, count, art, size, onActivate}) {
-    const launcher = new St.Button({
-        style_class: 'app-folder',
-        // Tracked: the theme paints the tile itself from `:hover`.
-        can_focus: true,
-        track_hover: true,
-        accessible_name: section.title,
-        y_align: Clutter.ActorAlign.START,
-        style: radiusStyle('launcher'),
-    });
-
-    const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, width: size});
-    const card = new St.Widget({
-        style_class: 'ml-launcher-card',
-        width: size,
-        height: size,
-        layout_manager: new Clutter.BinLayout(),
-        x_expand: false,
-        y_expand: false,
-        style: radiusStyle('launcher'),
-    });
-    // The artwork is a layer of its own: St shadows an image-backed widget as
-    // a square box, so the card that casts the shadow must not carry the image.
-    if (art)
-        card.add_child(new St.Widget({style: artworkStyle(art, 'launcher'), x_expand: true, y_expand: true}));
-    // The veil tints the artwork towards the accent so the icon always reads;
-    // without artwork it is simply the card's colour.
-    card.add_child(new St.Widget({
-        style_class: art ? 'ml-launcher-veil' : 'ml-launcher-veil ml-launcher-veil-plain',
-        style: radiusStyle('launcher'),
-        x_expand: true,
-        y_expand: true,
-    }));
-    // `size` is physical pixels, `icon_size` logical.
-    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-    card.add_child(new St.Icon({
-        icon_name: section.icon,
-        icon_size: Math.round(size * 0.36 / scale),
-        style_class: 'ml-launcher-icon',
-        x_align: Clutter.ActorAlign.CENTER,
-        y_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-        y_expand: true,
-    }));
-    box.add_child(card);
-
-    box.add_child(new St.Label({text: section.title, style_class: 'ml-launcher-title', x_align: Clutter.ActorAlign.CENTER}));
-    box.add_child(new St.Label({
-        text: count ? `${count} ${count === 1 ? 'item' : 'items'}` : 'Nothing indexed yet',
-        style_class: 'ml-launcher-subtitle',
-        x_align: Clutter.ActorAlign.CENTER,
-    }));
-    // The shell's own running dot, down to the way it is offset: `offset-y` is
-    // a length the theme sets and the app icon reads back as a translation
-    // (appDisplay.js:2998-3001), so it never takes part in the layout.
-    const dot = new St.Widget({style_class: 'app-grid-running-dot', x_align: Clutter.ActorAlign.CENTER, opacity: 0});
-    dot.connect('style-changed', () => (dot.translation_y = dot.get_theme_node().get_length('offset-y')));
-    box.add_child(dot);
-    launcher.set_child(box);
-
-    launcher.connect('clicked', () => onActivate?.());
-
-    // Faded rather than hidden, so opening a section never shifts the row.
-    launcher.setOpen = open => dot.ease({opacity: open ? 255 : 0, duration: Duration.FAST, mode: Ease.OUT});
-    return launcher;
-}
-
 // The shell's own round icon button — the shape it uses for a message's close
 // button and the folder dialog's edit button — so the hover, focus ring and
 // pressed state are the theme's rather than ours. No `St.Icon` child and no
@@ -198,17 +124,6 @@ export function createActionButton({label, icon, styleClass = 'button default ml
     return button;
 }
 
-// The way back to the home menu, in the section header.
-function createHomeButton() {
-    const button = createActionButton({
-        label: 'Home',
-        icon: 'go-home-symbolic',
-        styleClass: 'button ml-action-secondary',
-    });
-    button.y_align = Clutter.ActorAlign.CENTER;
-    return button;
-}
-
 // Swap a label's text under a cross-fade, so the header reads as one thing
 // changing rather than two labels being replaced.
 function crossFade(label, text) {
@@ -224,10 +139,9 @@ function crossFade(label, text) {
     });
 }
 
-// A section's name over its count. On its own it is the whole header of a
-// surface that needs no buttons beside it — the modal library's panel, where the
-// way out is the button it came from — and it is the middle of the one below.
-export function createTitles(title = '', subtitle = '') {
+// A section's name over a line beneath it: what the header says where there
+// are no tabs to say it — an open item, a library of one section.
+function createTitles(title = '', subtitle = '') {
     const actor = new St.BoxLayout({
         orientation: Clutter.Orientation.VERTICAL,
         style_class: 'ml-header-titles',
@@ -240,56 +154,146 @@ export function createTitles(title = '', subtitle = '') {
     return {actor, titleLabel, subtitleLabel};
 }
 
-// The bar above a section's library: a Back button that only appears once the
-// detail pane is open, the section's title and count, and the way home. The
-// two modes are the same widgets with different text and one button or the
-// other showing, so nothing is rebuilt when the pane opens or closes.
-export function createHeader({title, subtitle, onBack, onHome}) {
-    const actor = new St.BoxLayout({style_class: 'ml-header', x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+// The switch between the libraries: a pill of buttons, one per section, one
+// lit at a time — the shape of the shell's own screenshot/screencast switch
+// (`.screenshot-ui-shot-cast-container`), with words in it. The keyboard
+// landing on a tab chooses it, as tabs on a television do, so a remote's
+// arrows alone go from one library to the other.
+function createTabs(sections, active, onSwitch) {
+    const actor = new St.BoxLayout({style_class: 'ml-tabs', y_align: Clutter.ActorAlign.CENTER});
+    const tabs = new Map();
+    const setActive = key => {
+        for (const [k, tab] of tabs)
+            tab.checked = k === key;
+    };
+    for (const section of sections) {
+        const tab = new St.Button({
+            style_class: 'ml-tab',
+            label: section.title,
+            can_focus: true,
+            // Tracked: the tab paints its own `:hover`.
+            track_hover: true,
+        });
+        const choose = () => {
+            if (tab.checked)
+                return;
+            setActive(section.key);
+            onSwitch?.(section.key);
+        };
+        tab.connect('clicked', choose);
+        tab.connect('key-focus-in', choose);
+        tabs.set(section.key, tab);
+        actor.add_child(tab);
+    }
+    setActive(active);
+    return {actor, setActive, lit: () => [...tabs.values()].find(tab => tab.checked) ?? null};
+}
 
+// The bar above a library: the tabs between its sections in the middle, a
+// Back button at the start that shows only while an item is open, and at the
+// far end whatever buttons the place it heads has room for (`end`). With
+// fewer than two sections there is nothing to switch between, and the name
+// stands where the tabs would. An open item puts its section's name in the
+// tabs' place, over the way back; the two modes are the same widgets with one
+// or the other showing, so nothing is rebuilt as the pane opens or closes.
+//
+// A bin rather than a row, so the tabs sit in the middle of the header however
+// wide what is either side of them is. A bin places a child by its alignment
+// only when the child expands; one that does not is centred, whatever it asks.
+export function createHeader({sections, active, onSwitch, onBack = null, end = []}) {
+    const actor = new St.Widget({
+        style_class: 'ml-header',
+        layout_manager: new Clutter.BinLayout(),
+        x_expand: true,
+    });
+
+    const start = new St.BoxLayout({
+        style_class: 'ml-header-start',
+        x_expand: true,
+        x_align: Clutter.ActorAlign.START,
+        y_align: Clutter.ActorAlign.CENTER,
+    });
     const back = createIconButton('go-previous-symbolic', {accessibleName: 'Back'});
+    back.y_align = Clutter.ActorAlign.CENTER;
     back.connect('clicked', () => onBack?.());
     back.hide();
-    actor.add_child(back);
+    start.add_child(back);
+    const single = sections.length < 2;
+    const name = single ? sections[0]?.title ?? '' : '';
+    const {actor: titles, titleLabel, subtitleLabel} = createTitles(name);
+    titles.visible = single;
+    start.add_child(titles);
+    actor.add_child(start);
 
-    const {actor: titles, titleLabel, subtitleLabel} = createTitles(title, subtitle);
-    actor.add_child(titles);
+    const tabs = single ? null : createTabs(sections, active, onSwitch);
+    if (tabs) {
+        tabs.actor.x_align = Clutter.ActorAlign.CENTER;
+        actor.add_child(tabs.actor);
+    }
 
-    actor.add_child(new St.Widget({x_expand: true}));
-
-    // The way back to the menu, which closes this section's workspace.
-    const home = createHomeButton();
-    home.connect('clicked', () => onHome?.());
-    actor.add_child(home);
-
-    // What the header says now. A header that serves one section is built with
-    // it and never changes; the pane's own page has one header for every
-    // section, and `setTitle` is how it is pointed at the current one.
-    let heading = title;
-    let librarySubtitle = subtitle;
-
-    const setMode = (text, animate, appearing, leaving) => {
-        if (animate) {
-            crossFade(titleLabel, heading);
-            crossFade(subtitleLabel, text);
-            fadeTo(leaving, 0, {duration: Duration.FAST});
-            fadeTo(appearing, 255);
-            return;
+    if (end.length) {
+        const buttons = new St.BoxLayout({
+            style_class: 'ml-header-end',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.END,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        for (const button of end) {
+            button.y_align = Clutter.ActorAlign.CENTER;
+            buttons.add_child(button);
         }
-        titleLabel.text = heading;
-        subtitleLabel.text = text;
-        leaving.hide();
-        appearing.show();
-        appearing.opacity = 255;
+        actor.add_child(buttons);
+    }
+
+    const swap = (appearing, leaving, animate) => {
+        for (const part of leaving) {
+            if (animate) {
+                fadeTo(part, 0, {duration: Duration.FAST});
+            } else {
+                part.remove_all_transitions();
+                part.hide();
+            }
+        }
+        for (const part of appearing) {
+            if (animate) {
+                fadeTo(part, 255);
+            } else {
+                part.remove_all_transitions();
+                part.opacity = 255;
+                part.show();
+            }
+        }
+    };
+    const say = (title, subtitle, animate) => {
+        if (animate) {
+            crossFade(titleLabel, title);
+            crossFade(subtitleLabel, subtitle);
+        } else {
+            titleLabel.text = title;
+            subtitleLabel.text = subtitle;
+        }
     };
 
     return {
         actor,
-        setLibraryMode: animate => setMode(librarySubtitle, animate, home, back),
-        setDetailMode: animate => setMode('Back to library', animate, back, home),
-        setTitle: (text, sub = '') => {
-            heading = text;
-            librarySubtitle = sub;
+        setActive: key => tabs?.setActive(key),
+        // The lit tab takes the keyboard, for an arrow up out of the grid.
+        focusTabs: () => {
+            const tab = tabs?.lit();
+            tab?.grab_key_focus();
+            return !!tab;
+        },
+        setLibraryMode: (animate = false) => {
+            if (tabs) {
+                swap([tabs.actor], [back, titles], animate);
+            } else {
+                say(name, '', animate);
+                swap([titles], [back], animate);
+            }
+        },
+        setDetailMode: (title, animate = false) => {
+            say(title, 'Back to library', animate);
+            swap([back, titles], tabs ? [tabs.actor] : [], animate);
         },
     };
 }

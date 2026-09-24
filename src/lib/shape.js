@@ -30,7 +30,6 @@ const PART = {
     // leaves the corner reading as either too tight or too slack against the
     // panel's own (detailDialog.js sets the pair).
     paneInner: r => Math.max(0, r + 12 - PANE_INSET),
-    launcher: r => Math.round(r * 1.8),
     badge: r => Math.round(r / 2),
 };
 
