@@ -62,8 +62,8 @@ gnome-shell --version
 ### 2. Install it
 
 ```bash
-git clone https://github.com/Jackicus/Gnome-Extension-Media-Libraries.git
-cd Gnome-Extension-Media-Libraries
+git clone https://github.com/Jackicus/Gnome-Extension-Video-Menu.git
+cd Gnome-Extension-Video-Menu
 make install
 ```
 
