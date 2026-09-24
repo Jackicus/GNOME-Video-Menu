@@ -12,6 +12,8 @@
 
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -22,14 +24,18 @@ import {LIBRARY} from './library.js';
 // Show Apps with our icon and our tooltip, and nothing to drop on it.
 const LibraryIcon = GObject.registerClass(
 class MediaLibrariesLibraryIcon extends Dash.ShowAppsIcon {
-    _init() {
+    _init(gicon) {
+        // Read by _createIcon, which the BaseIcon super._init() builds calls
+        // straight away — so it is set before the chain-up, as the shell sets
+        // _iconActor before setDragApp() reads it.
+        this._gicon = gicon;
         super._init();
         this.setLabelText(LIBRARY.title);
     }
 
     _createIcon(size) {
         this._iconActor = new St.Icon({
-            icon_name: LIBRARY.icon,
+            gicon: this._gicon,
             icon_size: size,
             style_class: 'show-apps-icon',
             track_hover: true,
@@ -44,7 +50,12 @@ class MediaLibrariesLibraryIcon extends Dash.ShowAppsIcon {
 });
 
 export class LibraryButton {
-    constructor({onActivate}) {
+    // `path` is the extension's own directory, which the icon is read from:
+    // lib/ runs from a staged copy that holds nothing else.
+    constructor({path, onActivate}) {
+        this._gicon = new Gio.FileIcon({
+            file: Gio.File.new_for_path(GLib.build_filenamev([path, LIBRARY.icon])),
+        });
         this._onActivate = onActivate;
         this._button = null;
         this._buttonHost = null;
@@ -135,7 +146,7 @@ export class LibraryButton {
     }
 
     _newButton() {
-        const container = new LibraryIcon();
+        const container = new LibraryIcon(this._gicon);
         container.show(false);
         container.toggleButton.connect('clicked', () => this._onActivate());
         return container;

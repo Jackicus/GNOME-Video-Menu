@@ -33,10 +33,13 @@ export const SECTIONS = [
 ];
 
 // The library as a whole: what its one button beside Show Apps is called and
-// shows. The sections are its tabs.
+// shows. The sections are its tabs. The icon is a file of the extension's own,
+// in `icons/` — a television, the same one the TV Shows group has in Slider
+// Overlay — and is `-symbolic`, so St recolours it to the theme's foreground
+// as it does the shell's own.
 export const LIBRARY = {
     title: 'Videos',
-    icon: 'folder-videos-symbolic',
+    icon: 'icons/library-symbolic.svg',
 };
 
 export function sectionByKey(key) {

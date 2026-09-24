@@ -172,6 +172,7 @@ cmd_pack() {
     ( cd "$stage" && gnome-extensions pack --force \
         --extra-source=lib \
         --extra-source=backend \
+        --extra-source=icons \
         -o "$out" . )
     rm -rf "$stage"
     ok "Packed to $out/$UUID.shell-extension.zip"

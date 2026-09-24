@@ -177,7 +177,10 @@ export class MediaLibrariesApp {
         // The one way in, wherever the library opens. It lives as long as the
         // extension does rather than per build, so a rescan does not take it
         // out of the dash and put it back.
-        this._button = new LibraryButton({onActivate: () => this._toggleLibrary()});
+        this._button = new LibraryButton({
+            path: extension.path,
+            onActivate: () => this._toggleLibrary(),
+        });
         // Where the library is browsed when not on the surface: the menu view
         // or the window view. Null when it is drawn on the surface.
         this._browser = null;
