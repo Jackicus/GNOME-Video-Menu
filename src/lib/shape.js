@@ -9,9 +9,8 @@
 // The parts are offsets from the artwork's radius, in the proportions the
 // stylesheet already used: the detail pane is the roundest thing on screen,
 // badges the tightest. There are only as many as the eye can tell apart —
-// posters, photo thumbnails and list rows all asked for a radius within two
-// pixels of each other, so they share the artwork's and anything unnamed falls
-// back to it.
+// posters and list rows both asked for a radius within two pixels of each
+// other, so they share the artwork's and anything unnamed falls back to it.
 
 const MAX = 40;
 const DEFAULT_RADIUS = 18;

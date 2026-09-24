@@ -110,7 +110,7 @@ class MediaLibrariesDetailDialog extends MediaPanel {
         // The pane is what the column comes to; the panel is that plus its
         // frame. `detail-size` caps it, but never below what the column takes:
         // a small work area at the smallest size leaves the hero on its floor
-        // (detailView.js THUMB_SIZE) and the column can then want more than
+        // (detailView.js HERO_MIN) and the column can then want more than
         // the fraction allows — and a panel shorter than its pane is cut
         // square again. The work area itself is the ceiling instead.
         const paneWidth = budget.width - frame;

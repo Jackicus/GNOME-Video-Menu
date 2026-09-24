@@ -215,11 +215,6 @@
     padding: 4px 12px;
 }
 
-.ml-fact-strong {
-    color: -st-accent-fg-color;
-    background-color: -st-accent-color;
-}
-
 .ml-fact-rating {
     color: st-lighten(-st-accent-color, 30%);
     background-color: st-transparentize(-st-accent-color, 0.8);
@@ -369,17 +364,6 @@
 
 .ml-row-icon {
     color: rgba(250, 250, 251, 0.3);
-}
-
-/* Photo thumbnails. */
-.ml-thumb-grid {
-    padding: 4px 4px 0px 4px;
-}
-
-/* The grid's own tile, tightened: photos are dense, so the thumbnail keeps a
- * quarter of a poster tile's padding around its artwork. */
-.ml-thumb {
-    padding: 4px;
 }
 
 /* ---- Empty state ------------------------------------------------------- */

@@ -3,12 +3,12 @@
     <schema path="/org/gnome/shell/extensions/media-libraries/" id="org.gnome.shell.extensions.media-libraries">
 
         <!-- Media sections. Each looks in an ordered list of folders,
-             <prefix>-folders; an empty list means the XDG user folder (Music,
-             Pictures). TV shows and films have no default: the Videos folder
-             cannot be both, so they stay off until pointed at a folder.
-             <prefix>-path is the single folder earlier releases kept: the
-             preferences move it into the list the first time they open, and
-             the scanner reads it only while the list is still empty. -->
+             <prefix>-folders. There is no default: the Videos folder cannot
+             serve both TV shows and films, so a section stays off until
+             pointed at one. <prefix>-path is the single folder earlier
+             releases kept: the preferences move it into the list the first
+             time they open, and the scanner reads it only while the list is
+             still empty. -->
         <key name="tv-shows-enabled" type="b">
             <default>true</default>
             <summary>Show TV shows</summary>
@@ -71,107 +71,15 @@
             <description>Command this section's files open with; the file's path is appended. The default plays in VLC full screen and closes it when the file ends, with VLC's own "continue playback" off, since resume-playback does that. Empty uses the system default application, and so does a command that is not installed.</description>
         </key>
 
-        <key name="music-enabled" type="b">
-            <default>true</default>
-            <summary>Show music</summary>
-        </key>
-        <key name="music-path" type="s">
-            <default>""</default>
-            <summary>Music folder (legacy)</summary>
-            <description>Superseded by music-folders; read only while that list is empty. Album folders, optionally grouped under artist folders.</description>
-        </key>
-        <key name="music-folders" type="as">
-            <default>[]</default>
-            <summary>Music folders</summary>
-            <description>Album folders, optionally grouped under artist folders. Empty means the Music folder.</description>
-        </key>
-
-        <key name="music-sources" type="as">
-            <default>['itunes']</default>
-            <summary>Album sources, in order</summary>
-            <description>Album art comes from the iTunes Search API, which needs no key.</description>
-        </key>
-        <key name="music-online" type="b">
-            <default>true</default>
-            <summary>Fetch artwork and descriptions online for music</summary>
-            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
-        </key>
-        <key name="music-open-command" type="s">
-            <default>""</default>
-            <summary>Music player command</summary>
-            <description>Command this section's files open with, for example "rhythmbox" or "mpv --no-video". The file's path is appended. Empty uses the system default application.</description>
-        </key>
-
-        <key name="photos-enabled" type="b">
-            <default>true</default>
-            <summary>Show photos</summary>
-        </key>
-        <key name="photos-path" type="s">
-            <default>""</default>
-            <summary>Photos folder (legacy)</summary>
-            <description>Superseded by photos-folders; read only while that list is empty. One subfolder per album.</description>
-        </key>
-        <key name="photos-folders" type="as">
-            <default>[]</default>
-            <summary>Photos folders</summary>
-            <description>One subfolder per album. Empty means the Pictures folder.</description>
-        </key>
-
-        <key name="photos-sources" type="as">
-            <default>[]</default>
-            <summary>Photo sources</summary>
-            <description>Empty, and stays empty: thumbnails are generated locally and photos never leave this computer.</description>
-        </key>
-        <key name="photos-online" type="b">
-            <default>true</default>
-            <summary>Fetch artwork and descriptions online for photos</summary>
-            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
-        </key>
-        <key name="photos-open-command" type="s">
-            <default>""</default>
-            <summary>Photo viewer command</summary>
-            <description>Command this section's files open with, for example "loupe" or "eog". The file's path is appended. Empty uses the system default application.</description>
-        </key>
-
-        <!-- Games are not a folder of media: both paths only override the
-             auto-detection of Steam's library root and PCSX2's config folder. -->
-        <key name="games-enabled" type="b">
-            <default>true</default>
-            <summary>Show games</summary>
-        </key>
-        <key name="steam-path" type="s">
-            <default>""</default>
-            <summary>Steam library root</summary>
-            <description>The folder holding steamapps/. Empty auto-detects ~/.steam/steam, ~/.local/share/Steam and the flatpak install; extra libraries come from libraryfolders.vdf either way.</description>
-        </key>
-        <key name="pcsx2-path" type="s">
-            <default>""</default>
-            <summary>PCSX2 configuration folder</summary>
-            <description>The folder holding PCSX2.ini. Empty auto-detects ~/.config/PCSX2 and the flatpak install. Game folders and covers are read from the ini itself.</description>
-        </key>
-
-        <key name="games-sources" type="as">
-            <default>['steam','igdb@1']</default>
-            <summary>Game sources, in order</summary>
-            <description>A game’s source follows its platform rather than this order: Steam apps use Steam, PS2 discs use IGDB. The order decides which IGDB credential slot is tried first.</description>
-        </key>
-        <key name="games-online" type="b">
-            <default>true</default>
-            <summary>Fetch artwork and descriptions online for games</summary>
-            <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
-        </key>
-
         <!-- Credentials, shared by every section that names a slot.
              A slot id is "<service>@<n>": the same slot on two pages is the
              same key, so the TMDB key TV shows use is the one films use, and a
-             second slot ("tmdb@2") is a second key to fall back to. A service
-             that takes more than one field (IGDB's client id and secret) joins
-             them with a tab, in the order its fields are declared in prefs.js.
+             second slot ("tmdb@2") is a second key to fall back to.
              Stored in plain text in dconf, like every other GSettings value. -->
         <key name="credentials" type="a{ss}">
             <default>{}</default>
             <summary>API credentials by slot</summary>
-            <description>Slot id ("tmdb@1", "igdb@2") to credential. Multi-field credentials are tab-separated. An empty or missing credential makes the sources that name it skip themselves.</description>
+            <description>Slot id ("tmdb@1", "tmdb@2") to credential. An empty or missing credential makes the sources that name it skip themselves.</description>
         </key>
 
         <!-- Where each thing opens. Two independent choices out of one
@@ -213,21 +121,6 @@
             <default>[]</default>
             <summary>Open films</summary>
             <description>Opens the films library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
-        </key>
-        <key name="music-shortcut" type="as">
-            <default>[]</default>
-            <summary>Open music</summary>
-            <description>Opens the music library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
-        </key>
-        <key name="photos-shortcut" type="as">
-            <default>[]</default>
-            <summary>Open photos</summary>
-            <description>Opens the photos library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
-        </key>
-        <key name="games-shortcut" type="as">
-            <default>[]</default>
-            <summary>Open games</summary>
-            <description>Opens the games library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
         </key>
 
         <!-- Remotes, controllers and keys of the user's own (lib/actions.js,
@@ -372,7 +265,7 @@
         <key name="play-on-new-workspace" type="b">
             <default>true</default>
             <summary>Play on a new workspace</summary>
-            <description>When on, playing something — an episode, a film, a track, a photo, a game — first moves to an empty workspace, so the player's window opens there and the one it was picked on is left as it was. Folders ("Show in Files") open where you are either way.</description>
+            <description>When on, playing something — an episode or a film — first moves to an empty workspace, so the player's window opens there and the one it was picked on is left as it was. Folders ("Show in Files") open where you are either way.</description>
         </key>
 
         <!-- What has been watched: lib/tracking.js. -->

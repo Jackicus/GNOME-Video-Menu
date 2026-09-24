@@ -3,15 +3,12 @@
 
 Each section is scanned only when a folder is given for it, and the result is
 merged into the existing library.json so a rescan of one section keeps the
-others. A section can have several folders — repeat its flag — and they are
-walked in order into one list. Games are the exception: they are not a folder
-of media, so `--games` runs that section and the two paths only override
-auto-detection.
+other. A section can have several folders — repeat its flag — and they are
+walked in order into one list.
 
     python3 scan_library.py --tv-path "~/Videos/TV Shows" --films-path ~/Videos/Films
     python3 scan_library.py --films-path ~/Videos/Films --films-path /media/HDD/Films
-    python3 scan_library.py --music-path ~/Music --offline
-    python3 scan_library.py --games
+    python3 scan_library.py --films-path ~/Videos/Films --offline
     python3 scan_library.py --films-path ~/Videos/Films --source film=tmdb,wikipedia
 
 `--from-settings` fills all of that in from GSettings instead, optionally
@@ -38,15 +35,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from games_scanner import scan_games  # noqa: E402
-from media_scanner import scan_films, scan_music, scan_photos, scan_tv  # noqa: E402
+from media_scanner import scan_films, scan_tv  # noqa: E402
 from metadata import (  # noqa: E402
-    CACHE_DIR, PROVIDERS, MetadataService, fit_cached_art, localise_art, make_thumbnailer,
-    prune_art, source_id,
+    CACHE_DIR, PROVIDERS, MetadataService, fit_cached_art, localise_art, prune_art, source_id,
 )
 
 LIBRARY_VERSION = 2
-SECTIONS = ("tv", "films", "music", "photos", "games")
+SECTIONS = ("tv", "films")
 
 # Enrichment is almost entirely waiting on someone else's server, so it runs on
 # a small pool. Small deliberately: every provider here is free, and Wikipedia
@@ -63,20 +58,13 @@ SCHEMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 # library of its own, but shares this machine's one artwork cache.
 LIBRARY_PATH = os.path.join(CACHE_DIR, "library.json")
 
-# section key -> (GSettings key prefix, XDG user folder when no folder is set).
-# TV shows and films have no default: the Videos folder cannot serve both.
-SECTION_SETTINGS = {
-    "tv": ("tv-shows", None),
-    "films": ("films", None),
-    "music": ("music", "MUSIC"),
-    "photos": ("photos", "PICTURES"),
-    "games": ("games", None),
-}
+# section key -> GSettings key prefix. Neither section has a default folder —
+# the Videos folder cannot serve both — so both are off until pointed at one.
+SECTION_SETTINGS = {"tv": "tv-shows", "films": "films"}
 # A section is a page in the preferences; a kind is what metadata.py calls the
-# items on it. They differ for films and music, so the mapping is written down
-# once rather than guessed at either end.
-SECTION_KINDS = {"tv": "tv", "films": "film", "music": "album", "games": "game"}
-XDG_FALLBACKS = {"MUSIC": "Music", "PICTURES": "Pictures"}
+# items on it. They differ for films, so the mapping is written down once
+# rather than guessed at either end.
+SECTION_KINDS = {"tv": "tv", "films": "film"}
 
 
 def load_existing(path):
@@ -147,29 +135,12 @@ def _setting_value(key):
         return None
 
 
-def xdg_dir(name):
-    """An XDG user folder, read from the file GLib and xdg-user-dir both read,
-    so the backend needs no bindings of its own to agree with them."""
-    config = os.path.join(
-        os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "user-dirs.dirs")
-    try:
-        with open(config, "r", encoding="utf-8") as f:
-            for line in f:
-                key, _, value = line.partition("=")
-                if key.strip() == f"XDG_{name}_DIR":
-                    return os.path.expanduser(value.strip().strip('"').replace("$HOME", "~"))
-    except OSError:
-        pass
-    return os.path.expanduser(f"~/{XDG_FALLBACKS[name]}")
-
-
-def section_folders(prefix, xdg):
+def section_folders(prefix):
     """The folders a section is pointed at, in order, as the preferences see them.
 
     <prefix>-folders is the list; <prefix>-path is the single folder earlier
     releases kept and is read only while the list is empty, exactly as the
-    preferences read it before moving it over. With neither, the XDG folder for
-    the sections that have one.
+    preferences read it before moving it over.
     """
     listed = _setting_value(f"{prefix}-folders")
     folders = [str(f) for f in listed if str(f)] if isinstance(listed, list) else []
@@ -177,8 +148,6 @@ def section_folders(prefix, xdg):
         legacy = _setting(f"{prefix}-path")
         if legacy:
             folders = [legacy]
-    if not folders and xdg:
-        folders = [xdg_dir(xdg)]
     return folders
 
 
@@ -194,16 +163,10 @@ def apply_settings(args, parser):
             f"schemas ({SCHEMA_DIR}) or pass the folders explicitly.")
 
     only = set(args.only or SECTION_SETTINGS)
-    for key, (prefix, xdg) in SECTION_SETTINGS.items():
+    for key, prefix in SECTION_SETTINGS.items():
         if key not in only or _setting(f"{prefix}-enabled") != "true":
             continue
-        if key == "games":
-            args.games = True
-            # The two roots are auto-detected; a setting only overrides that.
-            args.steam_path = args.steam_path or _setting("steam-path") or ""
-            args.pcsx2_path = args.pcsx2_path or _setting("pcsx2-path") or ""
-            continue
-        folders = section_folders(prefix, xdg)
+        folders = section_folders(prefix)
         if folders:
             setattr(args, f"{key}_path", folders)
         else:
@@ -213,10 +176,8 @@ def apply_settings(args, parser):
     # section now, so they are read per section too. A section left out of
     # --only keeps whatever its items already had cached; it is not scanned.
     for key in only:
-        prefix = SECTION_SETTINGS[key][0]
-        kind = SECTION_KINDS.get(key)
-        if kind is None:   # photos never go online
-            continue
+        prefix = SECTION_SETTINGS[key]
+        kind = SECTION_KINDS[key]
         if kind not in args.sources:
             listed = _setting_value(f"{prefix}-sources")
             if isinstance(listed, list):
@@ -288,16 +249,9 @@ def main():
                         help="A TV shows folder (repeatable)")
     parser.add_argument("--films-path", action="append", metavar="FOLDER",
                         help="A films folder (repeatable)")
-    parser.add_argument("--music-path", action="append", metavar="FOLDER",
-                        help="A music folder (repeatable)")
-    parser.add_argument("--photos-path", action="append", metavar="FOLDER",
-                        help="A photos folder (repeatable)")
-    parser.add_argument("--games", action="store_true", help="Index installed Steam and PS2 games")
-    parser.add_argument("--steam-path", default="", help="Steam library root (empty: auto-detect)")
-    parser.add_argument("--pcsx2-path", default="", help="PCSX2 config folder (empty: auto-detect)")
     parser.add_argument("--source", action="append", default=[], metavar="KIND=A,B",
                         help="Sources for one kind, in the order they are tried "
-                             "(tv, film, album, game). Repeatable. Keys come from "
+                             "(tv, film). Repeatable. Keys come from "
                              "the preferences or the environment, never from here.")
     parser.add_argument("--offline", action="store_true", help="Skip online metadata and artwork")
     parser.add_argument("--from-settings", action="store_true",
@@ -332,23 +286,16 @@ def main():
     requested = {
         "tv": args.tv_path or [],
         "films": args.films_path or [],
-        "music": args.music_path or [],
-        "photos": args.photos_path or [],
     }
-    # Games have no media folder to point at, so the flag alone runs them —
-    # and naming either root implies it.
-    do_games = args.games or bool(args.steam_path or args.pcsx2_path)
-    if not any(requested.values()) and not do_games:
+    if not any(requested.values()):
         if args.from_settings:
             parser.error(
                 "nothing to scan: no section is both switched on and pointed at "
                 "a folder. Set one in the preferences.")
-        parser.error(
-            "give at least one of --tv-path, --films-path, --music-path, "
-            "--photos-path, --games, --from-settings")
+        parser.error("give at least one of --tv-path, --films-path, --from-settings")
 
     # Keys come from the preferences, or from the environment
-    # (MEDIA_LIBRARIES_TMDB_KEY, MEDIA_LIBRARIES_IGDB_*) for a standalone run. Never argv.
+    # (MEDIA_LIBRARIES_TMDB_KEY) for a standalone run. Never argv.
     meta = MetadataService(
         online=not args.offline,
         sources=args.sources,
@@ -388,17 +335,11 @@ def main():
                     continue
                 if key == "tv":
                     found = scan_tv(path, previous)
-                elif key == "films":
-                    found = scan_films(path, exclude=tv_folders, previous=previous)
-                elif key == "music":
-                    found = scan_music(path, previous)
                 else:
-                    found = scan_photos(path, make_thumbnailer(), previous)
+                    found = scan_films(path, exclude=tv_folders, previous=previous)
                 items.extend(found)
             unique_ids(items)
-
-            if key in ("tv", "films", "music"):
-                enrich_all(meta, items)
+            enrich_all(meta, items)
 
             sections[key] = items
             paths = [os.path.expanduser(p) for p in raw_folders]
@@ -409,27 +350,14 @@ def main():
             note = f", {reused} unchanged" if reused else ""
             print(f"{key}: {len(items)} items from {', '.join(paths)} ({time.time() - t0:.1f}s{note})")
 
-        if do_games:
-            t0 = time.time()
-            games = scan_games(
-                steam_root=os.path.expanduser(args.steam_path) or None,
-                pcsx2_root=os.path.expanduser(args.pcsx2_path) or None,
-            )
-            enrich_all(meta, games)
-            sections["games"] = games
-            scanned["games"] = {
-                "path": args.steam_path or "auto",
-                "count": len(games),
-                "steam": sum(1 for g in games if g.get("platform") == "steam"),
-                "ps2": sum(1 for g in games if g.get("platform") == "ps2"),
-            }
-            print(f"games: {len(games)} items ({time.time() - t0:.1f}s)")
-
         meta.flush()
         moved = localise_art(sections)
         library = {
             "version": LIBRARY_VERSION,
             "generated": time.time(),
+            # Only what this run knows about: a section this scanner no longer
+            # has (music, photos, games, from an install that had them) is
+            # dropped here rather than carried forward from the old file.
             "sections": {k: sections.get(k, []) for k in SECTIONS},
             "scanned": scanned,
         }

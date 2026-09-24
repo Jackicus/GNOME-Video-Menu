@@ -10,15 +10,15 @@ import {SECTIONS as LIBRARY_SECTIONS, migrateOpenCommand, openCommandKey, readSe
 import {ACTIONS, NATIVE_KEYS, padLabel} from './lib/actions.js';
 
 // Everything a source is, in one place: what it is called, what it is good
-// for, where its key comes from and which fields that key has.
+// for and where its key comes from.
 //
-// `fields` is what the credential is made of — one for an API key, two for a
-// Twitch client id/secret pair — and its order is the order they are joined by
-// in the `credentials` setting. A source with no `fields` needs no key, and
-// still gets a row of the same shape with the entry greyed out.
+// `key` is what the credential is, one field: a title for its entry row and
+// the file its value is read from in the key drop. A source with no `key`
+// needs none, and still gets a row of the same shape with the entry greyed
+// out.
 //
 // `service` is the folder the key drop is read from (~/Documents/keys/TMDB/),
-// shared with other projects; `file` is the file inside it.
+// shared with other projects; `key.file` is the file inside it.
 const SOURCES = {
     tvmaze: {
         title: 'TVmaze',
@@ -32,36 +32,13 @@ const SOURCES = {
         help: 'https://www.themoviedb.org/settings/api',
         helpHint: 'themoviedb.org → Settings → API (free for personal use)',
         service: 'TMDB',
-        fields: [{title: 'API key', file: 'API KEY.txt'}],
+        key: {title: 'API key', file: 'API KEY.txt'},
     },
     wikipedia: {
         title: 'Wikipedia',
         blurb: 'Free and keyless. A poster and the lead paragraph, and little else.',
         help: 'https://www.wikipedia.org/',
         helpHint: 'wikipedia.org — no account needed',
-    },
-    itunes: {
-        title: 'iTunes',
-        blurb: 'Free and keyless. Album artwork from the iTunes Search API.',
-        help: 'https://performance-partners.apple.com/search-api',
-        helpHint: 'apple.com — no account needed',
-    },
-    steam: {
-        title: 'Steam',
-        blurb: 'Free and keyless. Valve\'s own store record and library artwork for installed Steam games.',
-        help: 'https://store.steampowered.com/',
-        helpHint: 'steampowered.com — no account needed',
-    },
-    igdb: {
-        title: 'IGDB',
-        blurb: 'Covers, synopses and ratings for PS2 discs, which have no store record of their own.',
-        help: 'https://dev.twitch.tv/console/apps',
-        helpHint: 'dev.twitch.tv → Applications → Register (free)',
-        service: 'IGDB',
-        fields: [
-            {title: 'Client ID', file: 'CLIENT ID.txt'},
-            {title: 'Client secret', file: 'CLIENT SECRET.txt'},
-        ],
     },
 };
 
@@ -77,56 +54,22 @@ const SOURCES = {
 // ordered list in use is <prefix>-sources, and the same source may appear in
 // it more than once with a different key.
 //
-// A section normally looks in a list of folders, <prefix>-folders, added and
-// removed on its Files group as sources are on the sources group. Games are
-// different: not a list of media folders but two roots — Steam's library and
-// PCSX2's config folder, both auto-detected — so they name them in `paths`
-// and get one fixed row each.
+// A section looks in a list of folders, <prefix>-folders, added and removed
+// on its Files group as sources are on the sources group.
 const PAGES = {
     tv: {
-        lower: 'TV shows', noun: 'shows', xdg: null,
+        lower: 'TV shows', noun: 'shows',
         layout: 'One folder per show. Seasons can be subfolders ("Season 2") or SxxEyy in the file names.',
         online: 'Where artwork, synopsis, genres and ratings come from.',
         sources: ['tvmaze', 'tmdb', 'wikipedia'],
         opener: {title: 'Video player command', hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.'},
     },
     films: {
-        lower: 'films', noun: 'films', xdg: null,
+        lower: 'films', noun: 'films',
         layout: 'One folder or file per film, named "Title (Year)". The largest video in a folder is the feature.',
         online: 'Where posters, synopses, genres and ratings come from.',
         sources: ['tmdb', 'wikipedia'],
         opener: {title: 'Video player command', hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.'},
-    },
-    music: {
-        lower: 'music', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_MUSIC,
-        layout: 'Album folders, optionally inside artist folders. A cover.jpg or folder.jpg beside the tracks is used as the artwork.',
-        online: 'Where missing album art comes from.',
-        sources: ['itunes'],
-        opener: {title: 'Music player command', hint: 'For example "rhythmbox" or "mpv --no-video".'},
-    },
-    photos: {
-        lower: 'photos', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_PICTURES,
-        layout: 'One folder per album. Loose images in the folder itself become an album too.',
-        online: 'Photos never leave this computer; thumbnails are generated locally.',
-        sources: [],
-        offline: 'Not used — photos are never sent anywhere and thumbnails are made on this machine.',
-        opener: {title: 'Image viewer command', hint: 'For example "loupe" or "eog".'},
-    },
-    games: {
-        lower: 'games', noun: 'games',
-        paths: [
-            {
-                key: 'steam-path', title: 'Steam library',
-                hint: 'Auto-detected — ~/.steam/steam, ~/.local/share/Steam or the flatpak install',
-            },
-            {
-                key: 'pcsx2-path', title: 'PCSX2 configuration',
-                hint: 'Auto-detected — ~/.config/PCSX2 or the flatpak install',
-            },
-        ],
-        layout: 'Installed Steam games come from Steam\'s own library files, including libraries on other drives. PS2 games come from the folders PCSX2.ini points at; covers come from its covers folder.',
-        online: 'A game\'s source follows its platform rather than this order — Steam apps use Steam, PS2 discs use IGDB. The order decides which IGDB credential is tried first.',
-        sources: ['steam', 'igdb'],
     },
 };
 
@@ -159,10 +102,6 @@ const REMOTE_KEYS = {
     0x10081193: 'Channel Down',
     0x100811b6: 'Context Menu',
 };
-
-// Fields of a multi-field credential are joined by a tab: it cannot occur in
-// any of the keys, and it keeps the setting one flat a{ss}.
-const FIELD_SEP = '\t';
 
 export default class MediaLibrariesPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -206,25 +145,10 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         settings.set_value('credentials', new GLib.Variant('a{ss}', all));
     }
 
-    // One credential split into the fields its source declares, padded so a
-    // half-filled pair still has a box for the missing half.
-    _fields(settings, slot, count) {
-        const parts = this._credential(settings, slot).split(FIELD_SEP);
-        return Array.from({length: count}, (_, i) => parts[i] ?? '');
-    }
-
-    _setField(settings, slot, index, value, count) {
-        const parts = this._fields(settings, slot, count);
-        parts[index] = value;
-        // All-empty is no credential at all, so the slot goes rather than
-        // lingering as a row of tabs.
-        this._setCredential(settings, slot, parts.some(Boolean) ? parts.join(FIELD_SEP) : '');
-    }
-
-    // A slot is usable when every field its source declares is filled; a
-    // source whose slot is not usable is skipped by the scanner.
-    _credentialReady(settings, slot, count) {
-        return this._fields(settings, slot, count).every(value => value.trim() !== '');
+    // A slot is usable when its credential is filled; a source whose slot is
+    // not usable is skipped by the scanner.
+    _credentialReady(settings, slot) {
+        return this._credential(settings, slot).trim() !== '';
     }
 
     // Slots no list names any more are keys nobody can reach, so removing the
@@ -917,12 +841,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         settings.bind(`${section.prefix}-enabled`, enabled, 'active', Gio.SettingsBindFlags.DEFAULT);
         files.add(enabled);
 
-        if (section.paths) {
-            for (const spec of section.paths)
-                files.add(this._folderRow(state, section, spec));
-        } else {
-            this._foldersGroup(state, section, files);
-        }
+        this._foldersGroup(state, section, files);
 
         page.add(this._sourcesGroup(state, section));
 
@@ -949,8 +868,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     // Opening
     // ------------------------------------------------------------------
     // What a section's files open with: a command of the user's own, with the
-    // file's path appended, or the system default when left empty. Games have
-    // none — a game is launched by its own command line.
+    // file's path appended, or the system default when left empty.
     _openerGroup(state, section) {
         const {settings} = state;
         const key = openCommandKey(section);
@@ -993,17 +911,6 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             title: 'Information sources',
             description: section.online,
         });
-
-        // Photos have no source to switch off, so they get the line in the
-        // same place with no switch on it rather than one that does nothing.
-        if (!offered.length) {
-            group.add(new Adw.ActionRow({
-                title: 'Fetch artwork and descriptions online',
-                subtitle: section.offline,
-                sensitive: false,
-            }));
-            return group;
-        }
 
         const online = new Adw.SwitchRow({
             title: 'Fetch artwork and descriptions online',
@@ -1081,7 +988,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         const id = sourceId(entry);
         const spec = SOURCES[id];
         const slot = entry.includes('@') ? entry : null;
-        const fields = spec?.fields ?? [];
+        const field = spec?.key ?? null;
 
         const row = new Adw.ExpanderRow({
             title: spec?.title ?? id,
@@ -1091,13 +998,13 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         const sync = () => {
             if (!spec)
                 row.set_subtitle('Unknown source — remove it or fix the setting');
-            else if (!slot || !fields.length)
+            else if (!slot || !field)
                 row.set_subtitle('No key needed');
             else {
                 const shared = this._sharedWith(settings, section, entry);
                 const which = `Key ${entry.split('@')[1]}`;
                 const where = shared.length ? ` · shared with ${shared.join(' and ')}` : '';
-                row.set_subtitle(this._credentialReady(settings, slot, fields.length)
+                row.set_subtitle(this._credentialReady(settings, slot)
                     ? `${which} is set${where}`
                     : `${which} is not set — skipped${where}`);
             }
@@ -1137,7 +1044,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             help = new Gtk.Button({
                 icon_name: 'help-about-symbolic',
                 valign: Gtk.Align.CENTER,
-                tooltip_text: fields.length
+                tooltip_text: field
                     ? `Get a ${spec.title} key — ${spec.helpHint}`
                     : `About ${spec.title} — ${spec.helpHint}`,
                 css_classes: ['flat'],
@@ -1152,7 +1059,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                 row.add_suffix(button);
         }
 
-        if (!fields.length) {
+        if (!field) {
             row.add_row(new Adw.PasswordEntryRow({
                 title: spec ? `${spec.title} needs no key` : 'No key',
                 sensitive: false,
@@ -1160,49 +1067,44 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             return {row, sync};
         }
 
-        const entries = fields.map((field, i) => {
-            const value = new Adw.PasswordEntryRow({
-                title: field.title,
-                text: this._fields(settings, slot, fields.length)[i],
-                show_apply_button: true,
+        const value = new Adw.PasswordEntryRow({
+            title: field.title,
+            text: this._credential(settings, slot),
+            show_apply_button: true,
+        });
+        value.connect('apply', () => {
+            this._setCredential(settings, slot, value.get_text().trim());
+            sync();
+        });
+
+        const dropFile = this._keyDropFile(spec.service, field.file);
+        if (dropFile) {
+            const importBtn = new Gtk.Button({
+                label: 'Import',
+                valign: Gtk.Align.CENTER,
+                tooltip_text: `Read it from ${dropFile}`,
+                css_classes: ['flat'],
             });
-            value.connect('apply', () => {
-                this._setField(settings, slot, i, value.get_text().trim(), fields.length);
+            importBtn.connect('clicked', () => {
+                const imported = this._readKeyDrop(dropFile);
+                if (!imported)
+                    return;
+                value.set_text(imported);
+                this._setCredential(settings, slot, imported);
                 sync();
             });
-
-            const dropFile = this._keyDropFile(spec.service, field.file);
-            if (dropFile) {
-                const importBtn = new Gtk.Button({
-                    label: 'Import',
-                    valign: Gtk.Align.CENTER,
-                    tooltip_text: `Read it from ${dropFile}`,
-                    css_classes: ['flat'],
-                });
-                importBtn.connect('clicked', () => {
-                    const imported = this._readKeyDrop(dropFile);
-                    if (!imported)
-                        return;
-                    value.set_text(imported);
-                    this._setField(settings, slot, i, imported, fields.length);
-                    sync();
-                });
-                value.add_suffix(importBtn);
-            }
-            row.add_row(value);
-            return value;
-        });
+            value.add_suffix(importBtn);
+        }
+        row.add_row(value);
 
         return {
             row,
             sync: () => {
-                const current = this._fields(settings, slot, fields.length);
-                entries.forEach((value, i) => {
-                    // Never over an entry being typed into: the edit in front
-                    // of the user beats the one that landed from elsewhere.
-                    if (!value.has_focus && value.get_text() !== current[i])
-                        value.set_text(current[i]);
-                });
+                const current = this._credential(settings, slot);
+                // Never over an entry being typed into: the edit in front of
+                // the user beats the one that landed from elsewhere.
+                if (!value.has_focus && value.get_text() !== current)
+                    value.set_text(current);
                 sync();
             },
         };
@@ -1217,7 +1119,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         const spec = SOURCES[id];
 
         let entry = id;
-        if (spec?.fields?.length) {
+        if (spec?.key) {
             let n = 1;
             while (list.includes(`${id}@${n}`))
                 n++;
@@ -1254,8 +1156,8 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     // group: one row per folder with a remove button, and a "+" in the group's
     // header that opens the chooser and appends. The rows are rebuilt from
     // <prefix>-folders whenever it changes, as the sources rows are. With the
-    // list empty the group shows what the scanner will use instead — the XDG
-    // folder for music and photos, nothing for TV shows and films.
+    // list empty the group shows that nothing is scanned yet — TV shows and
+    // films have no default folder to fall back to.
     _foldersGroup(state, section, group) {
         const {settings} = state;
         const key = `${section.prefix}-folders`;
@@ -1281,14 +1183,11 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                 group.remove(row);
             const list = settings.get_strv(key);
             if (!list.length) {
-                const fallback = this._defaultFolder(section);
                 const row = new Adw.ActionRow({
-                    title: fallback ? 'Folder' : 'No folder',
-                    subtitle: fallback ? `${fallback}  (default)` : 'Nothing is scanned. Add a folder above.',
-                    sensitive: Boolean(fallback),
+                    title: 'No folder',
+                    subtitle: 'Nothing is scanned. Add a folder above.',
+                    sensitive: false,
                 });
-                if (fallback)
-                    this._checkFolder(row, fallback, () => !settings.get_strv(key).length);
                 group.add(row);
                 rows.push(row);
                 return;
@@ -1332,8 +1231,6 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     _migrateFolders(settings) {
         migrateOpenCommand(settings);
         for (const section of SECTIONS) {
-            if (section.paths)
-                continue;
             const legacy = settings.get_string(`${section.prefix}-path`);
             if (!legacy)
                 continue;
@@ -1343,14 +1240,9 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         }
     }
 
-    // The folders the scanner will walk for a section: the list, or the XDG
-    // default while the list is empty.
+    // The folders the scanner will walk for a section.
     _foldersFor(settings, section) {
-        const listed = settings.get_strv(`${section.prefix}-folders`);
-        if (listed.length)
-            return listed;
-        const fallback = this._defaultFolder(section);
-        return fallback ? [fallback] : [];
+        return settings.get_strv(`${section.prefix}-folders`);
     }
 
     // Find out whether `path` is there and mark the row if not. The answer is
@@ -1393,65 +1285,9 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         });
     }
 
-    // One fixed root row, for games: what it is set to, a chooser and a
-    // button back to auto-detection.
-    _folderRow(state, section, spec) {
-        const {settings} = state;
-        const row = new Adw.ActionRow({title: spec.title, activatable: true});
-        this._showFolder(row, settings, spec);
-        const pick = new Gtk.Button({
-            icon_name: 'folder-open-symbolic',
-            valign: Gtk.Align.CENTER,
-            tooltip_text: 'Choose folder',
-            css_classes: ['flat'],
-        });
-        const reset = new Gtk.Button({
-            icon_name: 'edit-clear-symbolic',
-            valign: Gtk.Align.CENTER,
-            tooltip_text: 'Back to auto-detection',
-            css_classes: ['flat'],
-            visible: settings.get_string(spec.key) !== '',
-        });
-        row.add_suffix(reset);
-        row.add_suffix(pick);
-
-        const choose = () => this._pickFolder(
-            state.window, `Choose ${section.title} ${spec.title.toLowerCase()}`,
-            settings.get_string(spec.key) || null, path => {
-                settings.set_string(spec.key, path);
-                this._showFolder(row, settings, spec);
-                reset.visible = true;
-            });
-        pick.connect('clicked', choose);
-        row.connect('activated', choose);
-        reset.connect('clicked', () => {
-            settings.set_string(spec.key, '');
-            this._showFolder(row, settings, spec);
-            reset.visible = false;
-        });
-        return row;
-    }
-
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
-    // The XDG user folder a section falls back to (Music, Pictures), or null
-    // for the ones that have no sensible default: the Videos folder cannot
-    // serve both TV shows and films.
-    _defaultFolder(section) {
-        if (section.xdg === null || section.xdg === undefined)
-            return null;
-        return GLib.get_user_special_dir(section.xdg) ?? null;
-    }
-
-    // A games root row: the setting, or the auto-detection hint when unset.
-    _showFolder(row, settings, spec) {
-        const path = settings.get_string(spec.key);
-        row.set_subtitle(path || spec.hint);
-        if (path)
-            this._checkFolder(row, path, () => settings.get_string(spec.key) === path);
-    }
-
     // How many items the last scan found per section, read the same way the
     // desktop reads it.
     _readCounts() {
@@ -1494,10 +1330,8 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                 content.set_label('Nothing enabled');
                 return;
             }
-            // Games are auto-detected and so always have somewhere to look;
-            // every other section needs a folder before it is worth running.
-            const ready = enabled.filter(s =>
-                s.paths || this._foldersFor(state.settings, s).length);
+            // A section needs a folder before it is worth running.
+            const ready = enabled.filter(s => this._foldersFor(state.settings, s).length);
             if (!ready.length) {
                 content.set_label('No folder set');
                 return;

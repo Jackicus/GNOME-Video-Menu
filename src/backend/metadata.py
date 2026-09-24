@@ -4,8 +4,6 @@ Sources, an ordered list per section in the preferences:
 
   TV shows   tvmaze (keyless) | tmdb (needs a key) | wikipedia (keyless)
   Films      tmdb (needs a key) | wikipedia (keyless)
-  Albums     itunes (keyless)
-  Games      steam (keyless, Steam apps) | igdb (needs Twitch credentials, PS2)
 
 The list is tried in order until one of them comes back with the artwork, so a
 section can name several and a title TMDB has never heard of still gets a
@@ -14,20 +12,13 @@ than failing, which is why TMDB can sit in every default list unkeyed.
 
 TMDB is the richest: poster, backdrop, tagline, runtime, genres and a rating.
 TVmaze covers TV well without a key. Wikipedia gives a poster and the lead
-paragraph for almost anything. Photos never go online.
-
-Games are the one kind whose source is decided by the item rather than by the
-list: a Steam app has its own keyless store record and artwork CDN, and a PS2
-disc image has neither, so it falls to IGDB when the Twitch credentials are set
-and to the drawn placeholder when they are not. The list still decides which
-IGDB credential is tried first.
+paragraph for almost anything.
 
 A source entry is a name, optionally with a credential slot — "tmdb" is the
 same as "tmdb@1", "tmdb@2" is a second TMDB key to fall back to. Credentials
 arrive from the preferences (the `credentials` setting, read by
 scan_library.py) or, for a standalone run, from the environment
-(MEDIA_LIBRARIES_TMDB_KEY, MEDIA_LIBRARIES_IGDB_CLIENT_ID, MEDIA_LIBRARIES_IGDB_CLIENT_SECRET).
-Neither is ever argv, so they do not show up in `ps`.
+(MEDIA_LIBRARIES_TMDB_KEY). Neither is ever argv, so they do not show up in `ps`.
 
 Everything degrades to "no metadata" on failure: the UI draws a placeholder
 tile from the title when poster_path is null, so nothing is ever generated on
@@ -45,6 +36,7 @@ import html
 import json
 import os
 import re
+import shutil
 import threading
 import time
 import urllib.error
@@ -55,7 +47,6 @@ CACHE_DIR = os.path.expanduser("~/.cache/media-libraries")
 POSTER_CACHE_DIR = os.path.join(CACHE_DIR, "posters")
 BACKDROP_CACHE_DIR = os.path.join(CACHE_DIR, "backdrops")
 METADATA_CACHE_DIR = os.path.join(CACHE_DIR, "metadata")
-THUMB_CACHE_DIR = os.path.join(CACHE_DIR, "thumbs")
 # One file for every cached record. The first release wrote one small file per
 # item, which cost an open() per item per scan just to check the provider still
 # matched; those files are still read when the index has no record for an item,
@@ -74,15 +65,11 @@ USER_AGENT = "MediaLibraries/2.0"
 #             scale 2, and the 560px detail hero (detailView.js
 #             HERO_MAX_HEIGHT) at scale 1
 #   backdrop  the detail pane's own backing, dimmed under a veil
-#   thumb     132px in the photo grid at scale 2; an album can hold thousands,
-#             so they stay modest
 POSTER_BOX = (512, 768)
 BACKDROP_BOX = (960, 540)
-THUMB_BOX = (256, 256)
 ART_CACHES = (
     (POSTER_CACHE_DIR, POSTER_BOX),
     (BACKDROP_CACHE_DIR, BACKDROP_BOX),
-    (THUMB_CACHE_DIR, THUMB_BOX),
 )
 # Remembers the caps the cache was last swept to; see fit_cached_art.
 ART_FIT_STAMP = os.path.join(CACHE_DIR, "art-fit.json")
@@ -92,40 +79,23 @@ TMDB_IMAGE = "https://image.tmdb.org/t/p"
 TMDB_POSTER_SIZE = "w780"
 TMDB_BACKDROP_SIZE = "w1280"
 
-# Steam publishes the same library art the client caches, keyless and sessionless.
-STEAM_CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps"
-STEAM_STORE_API = "https://store.steampowered.com/api/appdetails"
-
-# IGDB is a Twitch property: the client id/secret pair is exchanged for an app
-# access token, which is then sent as a bearer alongside the Client-ID header.
-IGDB_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
-IGDB_API = "https://api.igdb.com/v4"
-IGDB_IMAGE = "https://images.igdb.com/igdb/image/upload"
-IGDB_PS2_PLATFORM = 8
-
 PROVIDERS = {
     "tv": ("tvmaze", "tmdb", "wikipedia"),
     "film": ("tmdb", "wikipedia"),
-    "album": ("itunes",),
-    "game": ("steam", "igdb"),
 }
 # The list each kind falls back to when nothing was passed in — a standalone
 # run with no preferences to read. It matches the schema's defaults.
 DEFAULT_SOURCES = {
     "tv": ("tvmaze", "tmdb@1", "wikipedia"),
     "film": ("tmdb@1", "wikipedia"),
-    "album": ("itunes",),
-    "game": ("steam", "igdb@1"),
 }
-# How many fields a source's credential is made of; absent means it needs none.
-# Must match the `fields` each source declares in prefs.js.
-CREDENTIAL_FIELDS = {"tmdb": 1, "igdb": 2}
-# Fields of one credential are tab-separated, as the `credentials` setting
-# stores them.
-FIELD_SEP = "\t"
+# Sources that need a credential at all — only TMDB does now. A source not
+# listed here never carries a slot, which is why TMDB can sit in every
+# default list unkeyed and everything else never needs one.
+CREDENTIAL_NEEDED = {"tmdb"}
 # What wrote a cache entry that predates the "provider" field.
-LEGACY_PROVIDER = {"tv": "tvmaze", "film": "wikipedia", "album": "itunes", "game": "steam"}
-CACHED_FIELDS = ("summary", "genres", "rating", "runtime", "year", "artist", "tagline", "seasons")
+LEGACY_PROVIDER = {"tv": "tvmaze", "film": "wikipedia"}
+CACHED_FIELDS = ("summary", "genres", "rating", "runtime", "year", "tagline", "seasons")
 
 
 def source_id(entry):
@@ -141,7 +111,7 @@ def normalise_entry(entry):
     is what lets everything below look a credential up by the entry itself.
     """
     name = source_id(entry)
-    if not CREDENTIAL_FIELDS.get(name):
+    if name not in CREDENTIAL_NEEDED:
         return name
     return entry if "@" in entry else f"{name}@1"
 
@@ -154,12 +124,9 @@ _LOOKUPS = {
     ("tv", "wikipedia"): lambda svc, item, entry: svc._wikipedia(item, "tv"),
     ("film", "tmdb"): lambda svc, item, entry: svc._tmdb(item, "movie", entry),
     ("film", "wikipedia"): lambda svc, item, entry: svc._wikipedia(item, "film"),
-    ("album", "itunes"): lambda svc, item, entry: svc._itunes(item, "album"),
-    ("game", "steam"): lambda svc, item, entry: svc._steam(item),
-    ("game", "igdb"): lambda svc, item, entry: svc._igdb(item, entry),
 }
 
-for _d in (POSTER_CACHE_DIR, BACKDROP_CACHE_DIR, METADATA_CACHE_DIR, THUMB_CACHE_DIR):
+for _d in (POSTER_CACHE_DIR, BACKDROP_CACHE_DIR, METADATA_CACHE_DIR):
     os.makedirs(_d, exist_ok=True)
 
 
@@ -288,13 +255,12 @@ def _cached_copy(dest):
 def cache_local_art(path, kind="poster"):
     """A scaled copy, inside the cache, of artwork that lives outside it.
 
-    A cover.jpg beside the media, Steam's own library cache, PCSX2's covers
-    folder: handing any of those to the shell puts a read of the media folder on
-    the compositor thread, and that folder may be an automount where one read
-    blocks for ten seconds. The copy is named after the source path and its
-    mtime, so it is written once and rewritten only when the file behind it
-    changes. Getting that mtime is itself a stat of the media folder, which is
-    fine out here — the scanner has just walked it.
+    A cover.jpg beside the media: handing that path to the shell puts a read of
+    the media folder on the compositor thread, and that folder may be an
+    automount where one read blocks for ten seconds. The copy is named after
+    the source path and its mtime, so it is written once and rewritten only
+    when the file behind it changes. Getting that mtime is itself a stat of the
+    media folder, which is fine out here — the scanner has just walked it.
     """
     if not path:
         return None
@@ -318,7 +284,6 @@ def localise_art(sections):
     already made are reused, so for a library that is already right this is one
     string comparison per item.
     """
-    thumbnailer = make_thumbnailer()
     moved = 0
     for items in sections.values():
         for item in items or []:
@@ -326,11 +291,6 @@ def localise_art(sections):
                 path = item.get(field)
                 if path and not path.startswith(CACHE_DIR):
                     item[field] = cache_local_art(path, kind)
-                    moved += 1
-            for photo in item.get("photos") or []:
-                path = photo.get("thumb_path")
-                if path and not path.startswith(CACHE_DIR):
-                    photo["thumb_path"] = thumbnailer(photo["path"], photo.get("mtime")) if thumbnailer else None
                     moved += 1
     return moved
 
@@ -369,17 +329,15 @@ def fit_cached_art():
 def prune_art(sections):
     """Delete cached artwork nothing in the library points at any more.
 
-    Thumbnails carry the photo's mtime in their name, so every edit leaves the
-    previous one behind for good; posters and backdrops are orphaned by items
-    that were renamed or deleted. `sections` must be the whole merged library —
-    pruning against one section's items would throw away all the others — so
-    this belongs inside the scan lock, beside the write.
+    Posters and backdrops are orphaned by items that were renamed or deleted.
+    `sections` must be the whole merged library — pruning against one
+    section's items would throw away all the others — so this belongs inside
+    the scan lock, beside the write.
     """
     keep = set()
     for items in sections.values():
         for item in items or []:
             keep.update(p for p in (item.get("poster_path"), item.get("backdrop_path")) if p)
-            keep.update(p["thumb_path"] for p in item.get("photos") or [] if p.get("thumb_path"))
     removed = 0
     for directory, _box in ART_CACHES:
         for name in os.listdir(directory):
@@ -391,18 +349,18 @@ def prune_art(sections):
                 removed += 1
             except OSError:
                 pass
+    # Photos, and the thumbs/ folder only they used, are gone; sweep what an
+    # older release left behind once, here, rather than keeping thumbnail
+    # cache code around just for this.
+    thumbs_dir = os.path.join(CACHE_DIR, "thumbs")
+    if os.path.isdir(thumbs_dir):
+        shutil.rmtree(thumbs_dir, ignore_errors=True)
     return removed
 
 
-def _fetch(url, timeout, data=None, headers=None):
-    """GET with a polite retry: Wikipedia answers bursts with 429.
-
-    Passing `data` makes it a POST, which is the only way to talk to IGDB: it
-    speaks Apicalypse, a query language sent as the request body.
-    """
-    req = urllib.request.Request(
-        url, data=data, headers={"User-Agent": USER_AGENT, **(headers or {})}
-    )
+def _fetch(url, timeout):
+    """GET with a polite retry: Wikipedia answers bursts with 429."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -455,8 +413,8 @@ def clean_query(title, kind="tv"):
 
 class MetadataService:
     """Enrichment for one scan. `enrich` is called from a worker pool, so every
-    piece of shared state below it — the record index, the IGDB token, the
-    one-shot warning — is taken under `_lock`."""
+    piece of shared state below it — the record index, the one-shot warning —
+    is taken under `_lock`."""
 
     def __init__(self, online=True, sources=None, credentials=None, offline_kinds=()):
         self.online = online
@@ -473,39 +431,31 @@ class MetadataService:
                     normalise_entry(e) for e in entries
                     if source_id(e) in PROVIDERS.get(kind, ()))
         self._credentials = dict(credentials or {})
-        # Slot 1 of each service falls back to the environment, which is how a
-        # standalone run (no preferences to read) is given a key.
+        # Slot 1 falls back to the environment, which is how a standalone run
+        # (no preferences to read) is given a key.
         self._env_credentials = {
             "tmdb": (os.environ.get("MEDIA_LIBRARIES_TMDB_KEY") or "").strip(),
-            "igdb": FIELD_SEP.join((
-                (os.environ.get("MEDIA_LIBRARIES_IGDB_CLIENT_ID") or "").strip(),
-                (os.environ.get("MEDIA_LIBRARIES_IGDB_CLIENT_SECRET") or "").strip(),
-            )),
         }
-        self._igdb_tokens = {}        # slot -> (value, expiry); one per credential per run
         self._warned = set()          # source names already complained about
         self._lock = threading.Lock()
-        self._igdb_lock = threading.Lock()
-        self._index = self._load_index()
         self._unflushed = 0
+        self._index = self._load_index()
 
     # -- sources ---------------------------------------------------------
     def credential(self, entry):
-        """One source entry's credential, split into its fields."""
+        """One source entry's credential (its API key), or "" if it has none."""
         raw = self._credentials.get(entry)
         if not raw and entry.endswith("@1"):
             raw = self._env_credentials.get(source_id(entry))
-        fields = CREDENTIAL_FIELDS.get(source_id(entry), 0)
-        parts = (raw or "").split(FIELD_SEP)
-        return [(parts[i] if i < len(parts) else "").strip() for i in range(fields)]
+        return (raw or "").strip()
 
     def _usable(self, entry):
         """Whether this entry can run at all. A source whose credential is
         missing skips itself, which is what lets TMDB sit unkeyed in every
         default list rather than being an error."""
-        if not CREDENTIAL_FIELDS.get(source_id(entry)):
+        if source_id(entry) not in CREDENTIAL_NEEDED:
             return True
-        if all(self.credential(entry)):
+        if self.credential(entry):
             return True
         name = source_id(entry)
         with self._lock:
@@ -516,19 +466,8 @@ class MetadataService:
         return False
 
     def sources_for(self, item):
-        """The sources that may answer for one item, in the order they are tried.
-
-        A game is the one kind decided by the item rather than by the order: a
-        Steam app has a store record and an artwork CDN of its own, and a PS2
-        disc image has neither, so only IGDB can know it. The list still says
-        which IGDB credential is reached for first.
-        """
-        kind = item["kind"]
-        entries = self.sources.get(kind, ())
-        if kind == "game":
-            want = "steam" if item.get("platform") == "steam" else "igdb"
-            entries = [e for e in entries if source_id(e) == want]
-        return [e for e in entries if self._usable(e)]
+        """The sources that may answer for one item, in the order they are tried."""
+        return [e for e in self.sources.get(item["kind"], ()) if self._usable(e)]
 
     def online_for(self, kind):
         """Whether this kind may go online at all: the run's --offline flag and
@@ -542,7 +481,14 @@ class MetadataService:
                 data = json.load(f)
         except (OSError, ValueError):
             return {}
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        # Music and games are gone; drop what their scans cached rather than
+        # carry it forward forever unread. The next flush writes the index
+        # back without them.
+        kept = {k: v for k, v in data.items() if not k.startswith(("album_", "game_"))}
+        self._unflushed += len(data) - len(kept)
+        return kept
 
     def _paths(self, item):
         # TV shows keep the unprefixed names the first release used, so posters
@@ -699,7 +645,7 @@ class MetadataService:
         """Poster, backdrop, synopsis, tagline, genres, runtime and rating from
         The Movie Database. `media` is "movie" or "tv"; `entry` names the key
         slot, so a list holding "tmdb@1" and "tmdb@2" asks twice with two keys."""
-        api_key = self.credential(entry)[0]
+        api_key = self.credential(entry)
         query = clean_query(item["title"], "film" if media == "movie" else "tv")
         params = {"api_key": api_key, "query": query, "include_adult": "false"}
         year = item.get("year")
@@ -778,193 +724,3 @@ class MetadataService:
             film["year"] = int(m.group(1))
         image = summary.get("originalimage") or summary.get("thumbnail") or {}
         return image.get("source")
-
-    def _itunes(self, item, entity):
-        query = clean_query(item["title"], "album")
-        if entity == "album" and item.get("artist"):
-            query = f"{item['artist']} {query}"
-        q = urllib.parse.quote(query)
-        data = _get_json(f"https://itunes.apple.com/search?term={q}&entity={entity}&limit=5")
-        results = data.get("results") or []
-        if not results:
-            return None
-
-        # Prefer the result whose release year matches the folder name.
-        year = item.get("year")
-        best = results[0]
-        if year:
-            for r in results:
-                if str(r.get("releaseDate", ""))[:4] == str(year):
-                    best = r
-                    break
-
-        if entity == "movie":
-            item["summary"] = best.get("longDescription") or best.get("shortDescription")
-            genre = best.get("primaryGenreName")
-            item["genres"] = [genre] if genre else []
-            millis = best.get("trackTimeMillis")
-            item["runtime"] = round(millis / 60000) if millis else None
-        else:
-            item["artist"] = item.get("artist") or best.get("artistName")
-            genre = best.get("primaryGenreName")
-            item["genres"] = [genre] if genre else []
-            if not item.get("summary"):
-                count = best.get("trackCount")
-                item["summary"] = f"{count} tracks" if count else None
-        release = str(best.get("releaseDate", ""))[:4]
-        if not item.get("year") and release.isdigit():
-            item["year"] = int(release)
-
-        art = best.get("artworkUrl100")
-        return art.replace("100x100bb", "600x600bb") if art else None
-
-
-    def _steam(self, item):
-        """A Steam app, from Valve's own keyless endpoints.
-
-        The store record (synopsis, genres, release year, Metacritic score) and
-        the library art come from two different hosts, and neither takes a key
-        or a session. Artwork is only asked for when the local client has not
-        already cached it: the scanner fills poster_path/backdrop_path from
-        appcache/librarycache first, and that cache is lazy — the client
-        downloads only what it has had to draw — so the CDN covers the rest.
-        """
-        appid = str(item.get("app_id") or "").strip()
-        if not appid:
-            return None
-
-        try:
-            record = _get_json(f"{STEAM_STORE_API}?appids={appid}&l=english", timeout=8).get(appid) or {}
-        except Exception as e:
-            print(f"Steam store lookup failed for '{item['title']}': {e}")
-            record = {}
-        data = record.get("data") or {} if record.get("success") else {}
-        if data:
-            item["summary"] = _strip_html(data.get("short_description") or data.get("about_the_game"))
-            item["genres"] = [g["description"] for g in data.get("genres") or [] if g.get("description")]
-            score = (data.get("metacritic") or {}).get("score")
-            # The rest of the library rates out of 10; Metacritic rates out of 100.
-            item["rating"] = round(score / 10, 1) if score else None
-            released = (data.get("release_date") or {}).get("date") or ""
-            year = re.search(r"\b(\d{4})\b", released)
-            if not item.get("year") and year:
-                item["year"] = int(year.group(1))
-
-        art = {}
-        if not item.get("poster_path"):
-            art["poster"] = f"{STEAM_CDN}/{appid}/library_600x900.jpg"
-        if not item.get("backdrop_path"):
-            art["backdrop"] = f"{STEAM_CDN}/{appid}/library_hero.jpg"
-        return art
-
-    def _igdb_access_token(self, entry):
-        """The Twitch app access token for one credential slot, minted once per run.
-
-        Tokens are good for weeks, so one scan needs exactly one per slot. The
-        lock is held across the exchange as well as the check, so a pool of
-        workers all reaching PS2 games at once still mints a single token
-        between them. None on any failure — an unreachable IGDB must leave the
-        PS2 games with the drawn placeholder, not stop the scan.
-        """
-        with self._igdb_lock:
-            return self._igdb_access_token_locked(entry)
-
-    def _igdb_access_token_locked(self, entry):
-        held = self._igdb_tokens.get(entry)
-        if held and time.time() < held[1]:
-            return held[0]
-        client_id, client_secret = self.credential(entry)
-        params = urllib.parse.urlencode({
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_type": "client_credentials",
-        })
-        try:
-            data = json.loads(_fetch(f"{IGDB_TOKEN_URL}?{params}", 10, data=b"").decode("utf-8"))
-        except Exception as e:
-            print(f"IGDB authentication failed: {e}")  # never the credentials themselves
-            return None
-        value = data.get("access_token")
-        if not value:
-            return None
-        # A minute of headroom, so a token cannot expire mid-request.
-        self._igdb_tokens[entry] = (
-            value, time.time() + max(0, int(data.get("expires_in") or 3600) - 60))
-        return value
-
-    def _igdb(self, item, entry):
-        """A PS2 game from IGDB: cover, synopsis, genres, rating and year.
-
-        IGDB speaks Apicalypse — one POST body, one round trip for the whole
-        record. The search is pinned to the PlayStation 2 platform so a
-        remake on another console cannot outrank the disc actually on disk.
-        """
-        token = self._igdb_access_token(entry)
-        if not token:
-            return None
-        query = clean_query(item["title"], "game").replace('"', "")
-        body = (
-            f'search "{query}"; '
-            "fields name,summary,storyline,first_release_date,total_rating,genres.name,"
-            "cover.image_id,artworks.image_id,screenshots.image_id; "
-            f"where platforms = ({IGDB_PS2_PLATFORM}); limit 5;"
-        )
-        raw = _fetch(
-            f"{IGDB_API}/games", 10,
-            data=body.encode("utf-8"),
-            headers={
-                "Client-ID": self.credential(entry)[0],
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json",
-            },
-        )
-        results = json.loads(raw.decode("utf-8")) or []
-        if not results:
-            return None
-
-        best = results[0]
-        item["summary"] = best.get("summary") or best.get("storyline") or None
-        item["genres"] = [g["name"] for g in best.get("genres") or [] if g.get("name")]
-        rating = best.get("total_rating")
-        item["rating"] = round(rating / 10, 1) if rating else None
-        released = best.get("first_release_date")
-        if not item.get("year") and released:
-            item["year"] = int(time.strftime("%Y", time.gmtime(released)))
-
-        cover = (best.get("cover") or {}).get("image_id")
-        wide = next(
-            (w.get("image_id") for w in (best.get("artworks") or []) + (best.get("screenshots") or []) if w.get("image_id")),
-            None,
-        )
-        return {
-            "poster": f"{IGDB_IMAGE}/t_cover_big/{cover}.jpg" if cover else None,
-            "backdrop": f"{IGDB_IMAGE}/t_1080p/{wide}.jpg" if wide else None,
-        }
-
-
-# --------------------------------------------------------------------------
-# Photo thumbnails
-# --------------------------------------------------------------------------
-def make_thumbnailer():
-    """Return a callable path -> thumbnail path, or None if nothing can scale images.
-
-    The thumbnail is the only thing the shell is ever pointed at for a photo:
-    failing back to the photo itself would put a full-resolution decode, of a
-    file that may be on a network mount, on the compositor thread.
-    """
-    if _scaler() is None:
-        return None
-
-    from media_scanner import path_key
-
-    def thumbnail(path, mtime=None):
-        # The caller has usually just stat'ed the file to sort by date; taking
-        # its mtime saves stat'ing every photo in the library a second time.
-        try:
-            mtime = int(os.path.getmtime(path) if mtime is None else mtime)
-        except OSError:
-            return None
-        dest = os.path.join(THUMB_CACHE_DIR, f"{path_key(path)}_{mtime}.jpg")
-        return _cached_copy(dest) or fit_image(path, THUMB_BOX, dest)
-
-    return thumbnail

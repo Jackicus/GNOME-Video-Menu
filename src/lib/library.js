@@ -1,12 +1,11 @@
 // Reads ~/.cache/media-libraries/library.json (written by backend/scan_library.py)
-// and normalises every media type into one shape the views can render:
+// and normalises TV shows and films into one shape the views can render:
 //
 //   item = {
 //     id, kind, title, year, rating, tags, summary, tagline, art, backdrop, folder,
-//     countLabel,               // "141 episodes", "12 tracks", "105 hours played"
+//     countLabel,               // "141 episodes", "112 min"
 //     playPath, playLabel,      // what the primary button opens
-//     groups: [{name, entries: [{title, subtitle, path, badges, thumb}]}],
-//     layout: 'list' | 'grid',  // how a group's entries are shown
+//     groups: [{name, entries: [{title, subtitle, path, badges}]}],
 //   }
 
 import Gio from 'gi://Gio';
@@ -31,41 +30,15 @@ export const SECTIONS = [
         watched: true,
         emptyHint: 'Add a folder with one subfolder or file per film in Settings.',
     },
-    {
-        key: 'music',
-        prefix: 'music',
-        title: 'Music',
-        icon: 'audio-x-generic-symbolic',
-        aspect: 1,
-        emptyHint: 'Add a folder of albums in Settings.',
-    },
-    {
-        key: 'photos',
-        prefix: 'photos',
-        title: 'Photos',
-        icon: 'image-x-generic-symbolic',
-        aspect: 1,
-        emptyHint: 'Add a folder of photo albums in Settings.',
-    },
-    {
-        key: 'games',
-        prefix: 'games',
-        title: 'Games',
-        icon: 'applications-games-symbolic',
-        aspect: 1.5,
-        emptyHint: 'Install a Steam game, or point PCSX2 at a folder of PS2 discs, then rescan in Settings.',
-    },
 ];
 
 export function sectionByKey(key) {
     return SECTIONS.find(s => s.key === key) ?? SECTIONS[0];
 }
 
-// The setting that names what a section's files open with, or null for a
-// section whose things are not files to hand a command — a game is launched
-// by its own command line, so it always runs as the platform says.
+// The setting that names what a section's files open with.
 export function openCommandKey(section) {
-    return section.key === 'games' ? null : `${section.prefix}-open-command`;
+    return `${section.prefix}-open-command`;
 }
 
 // Earlier releases kept one player command for every video. It is moved into
@@ -115,8 +88,8 @@ export function readSections() {
     }
 }
 
-// Returns {tv: [...], films: [...], music: [...], photos: [...]} of normalised
-// items. Missing or unreadable files yield empty sections, never fake data.
+// Returns {tv: [...], films: [...]} of normalised items. Missing or unreadable
+// files yield empty sections, never fake data.
 export function loadLibrary() {
     const empty = Object.fromEntries(SECTIONS.map(s => [s.key, []]));
     const {sections} = readSections();
@@ -139,14 +112,14 @@ export function loadLibrary() {
 // item, though, and this runs on the compositor's main loop for every item in
 // every section, twice.
 //
-// Every one of those paths is the scanner's own, in three cache folders: it
+// Every one of those paths is the scanner's own, in two cache folders: it
 // copies a cover.jpg it finds beside the media in with the rest, scaled to
 // what the desktop draws. So the folders are listed once and the check is a
 // lookup. A path from anywhere else counts as missing rather than earning a
 // stat of its own — the media can be on a share that has gone to sleep, and
 // one stat of that is the desktop standing still until it wakes.
 // ---------------------------------------------------------------------------
-const ART_DIRS = ['posters', 'backdrops', 'thumbs'];
+const ART_DIRS = ['posters', 'backdrops'];
 
 function listNames(path) {
     const names = new Set();
@@ -200,14 +173,10 @@ function normalize(item, sectionKey, art) {
         backdrop: exists(item.backdrop_path, art) ? item.backdrop_path : null,
         tagline: item.tagline ?? null,
         folder: item.folder_path ?? null,
-        layout: 'list',
     };
     switch (sectionKey) {
     case 'tv': return normalizeShow(item, base);
     case 'films': return normalizeFilm(item, base);
-    case 'music': return normalizeAlbum(item, base);
-    case 'photos': return normalizePhotoAlbum(item, base, art);
-    case 'games': return normalizeGame(item, base);
     default: return null;
     }
 }
@@ -316,142 +285,6 @@ function normalizeFilm(film, base) {
         groups: [{name: files.length > 1 ? 'Files' : 'File', entries}],
         groupLabel: null,
         playPath: film.main_path ?? files[0]?.path ?? null,
-        playLabel: 'Play',
-    };
-}
-
-// ---------------------------------------------------------------------------
-// Music
-// ---------------------------------------------------------------------------
-function normalizeAlbum(album, base) {
-    const tracks = Array.isArray(album.tracks) ? album.tracks : [];
-    const entries = tracks.map((t, i) => ({
-        index: t.track ?? i + 1,
-        title: t.title || t.filename,
-        subtitle: null,
-        path: t.path,
-        badges: [],
-        size: t.size_mb ? `${t.size_mb} MB` : null,
-    }));
-    return {
-        ...base,
-        subtitle: album.artist ?? null,
-        countLabel: plural(tracks.length, 'track'),
-        groups: [{name: 'Tracks', entries}],
-        groupLabel: null,
-        playPath: tracks[0]?.path ?? null,
-        playLabel: 'Play album',
-    };
-}
-
-// ---------------------------------------------------------------------------
-// Photos
-// ---------------------------------------------------------------------------
-function normalizePhotoAlbum(album, base, art) {
-    const photos = Array.isArray(album.photos) ? album.photos : [];
-    const item = {
-        ...base,
-        layout: 'grid',
-        countLabel: plural(photos.length, 'photo'),
-        groupLabel: null,
-        playPath: album.folder_path ?? null,
-        playLabel: 'Open folder',
-    };
-    // An album runs to thousands of photos and only the detail pane reads
-    // `groups`, after the pick, so building the entry list is deferred to
-    // the first read of it rather than paid by every album on every scan.
-    Object.defineProperty(item, 'groups', {
-        enumerable: true,
-        configurable: true,
-        get() {
-            const groups = [{
-                name: 'Photos',
-                entries: photos.map((p, i) => ({
-                    index: i + 1,
-                    title: p.title || p.filename,
-                    subtitle: null,
-                    path: p.path,
-                    thumb: exists(p.thumb_path, art) ? p.thumb_path : null,
-                    badges: [],
-                    size: null,
-                })),
-            }];
-            Object.defineProperty(this, 'groups', {value: groups, enumerable: true});
-            return groups;
-        },
-    });
-    return item;
-}
-
-// ---------------------------------------------------------------------------
-// Games
-// ---------------------------------------------------------------------------
-const PLATFORM_NAMES = {steam: 'Steam', ps2: 'PlayStation 2'};
-
-// 58 -> "58 minutes played"; 6347 -> "105 hours played". Steam counts in
-// minutes and never rounds, so anything past a couple of hours reads better
-// as hours.
-function playtimeLabel(minutes) {
-    if (!minutes || minutes < 1)
-        return null;
-    if (minutes < 120)
-        return `${plural(minutes, 'minute')} played`;
-    return `${plural(Math.round(minutes / 60), 'hour')} played`;
-}
-
-function normalizeGame(game, base) {
-    const platform = PLATFORM_NAMES[game.platform] ?? 'Game';
-    const played = playtimeLabel(game.playtime_minutes);
-    const folder = game.folder_path ?? null;
-
-    // Not a list of things to play — a game is one thing — so the group is
-    // what there is to know about it, each row opening the folder it names.
-    const entries = [];
-    if (folder) {
-        entries.push({
-            index: entries.length + 1,
-            title: game.platform === 'ps2' ? 'Disc image' : 'Install folder',
-            subtitle: game.platform === 'ps2' ? (game.disc_path ?? folder) : folder,
-            path: folder,
-            icon: 'folder-symbolic',
-            badges: game.disc_format ? [game.disc_format.toUpperCase()] : [],
-            size: game.size_mb ? `${Math.round(game.size_mb)} MB` : null,
-        });
-    }
-    if (played) {
-        entries.push({
-            index: entries.length + 1,
-            title: 'Playtime',
-            subtitle: played,
-            path: null,
-            icon: 'preferences-system-time-symbolic',
-            badges: [],
-            size: null,
-        });
-    }
-    if (game.serial) {
-        entries.push({
-            index: entries.length + 1,
-            title: 'Serial',
-            subtitle: game.serial,
-            path: null,
-            icon: 'media-optical-symbolic',
-            badges: [],
-            size: null,
-        });
-    }
-
-    const launch = Array.isArray(game.launch) && game.launch.every(a => typeof a === 'string' && a)
-        ? game.launch : null;
-    return {
-        ...base,
-        subtitle: platform,
-        countLabel: played ?? platform,
-        groups: [{name: 'Details', entries}],
-        groupLabel: null,
-        // An argv array: the app runs it as a command line rather than
-        // handing it to the default application (openPath in app.js).
-        playPath: launch,
         playLabel: 'Play',
     };
 }

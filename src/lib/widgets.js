@@ -24,9 +24,9 @@ export function createLabel(text, styleClass, props = {}) {
     return label;
 }
 
-// A poster or album cover: the image when there is one, otherwise a tinted
-// placeholder built from the section icon and the title. Placeholders live in
-// the stylesheet so they follow the system accent colour.
+// A poster: the image when there is one, otherwise a tinted placeholder built
+// from the section icon and the title. Placeholders live in the stylesheet so
+// they follow the system accent colour.
 export function createArtwork({path, title, icon, width, height, styleClass = 'ml-art', radius = 'art'}) {
     const art = new St.Widget({
         style_class: styleClass,
@@ -307,7 +307,7 @@ export function createPill(text, styleClass, style = null) {
 // disc a toggle of its own, showing a tick once watched, and `onWatched` is
 // told each time it is flipped. Such a row also has `setWatched(watched)`,
 // for a mark made somewhere else — by playing the file — to show on it.
-export function createRow({index, title, subtitle, badges = [], size, icon = 'media-playback-start-symbolic', onActivate, watched = null, onWatched}) {
+export function createRow({index, title, subtitle, badges = [], size, onActivate, watched = null, onWatched}) {
     const row = new St.Button({
         // The theme's flat button: hover, focus and pressed come with it, and
         // the inline radius below overrides the one it brings.
@@ -392,7 +392,7 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
         content.add_child(new St.Label({text: size, style_class: 'ml-row-size', y_align: Clutter.ActorAlign.CENTER}));
 
     content.add_child(new St.Icon({
-        icon_name: icon,
+        icon_name: 'media-playback-start-symbolic',
         icon_size: 16,
         style_class: 'ml-row-icon',
         y_align: Clutter.ActorAlign.CENTER,
@@ -401,25 +401,6 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
     row.set_child(content);
     row.connect('clicked', () => onActivate?.());
     return row;
-}
-
-// A square photo thumbnail for grid-layout groups: the grid's own tile with a
-// photo in it, so the hover and the focus ring are the ones a poster has.
-export function createThumb({path, size, accessibleName, onActivate}) {
-    const button = new St.Button({
-        style_class: 'overview-tile ml-thumb',
-        can_focus: true,
-        accessible_name: accessibleName,
-        child: createArtwork({
-            path,
-            title: null,
-            icon: 'image-x-generic-symbolic',
-            width: size,
-            height: size,
-        }),
-    });
-    button.connect('clicked', () => onActivate?.());
-    return button;
 }
 
 // Shown when a section has nothing in it.

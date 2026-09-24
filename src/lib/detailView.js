@@ -1,5 +1,5 @@
 // One item up close: artwork and primary action on the left, title, facts,
-// synopsis and the group list (seasons, tracks, files, photos) on the right.
+// synopsis and the group list (seasons, files) on the right.
 
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
@@ -8,15 +8,15 @@ import Pango from 'gi://Pango';
 
 import {Duration, Ease, slideSwap, staggerIn} from './anim.js';
 import {fillOnScroll} from './lazyList.js';
-import {artworkStyle, createArtwork, createActionButton, createLabel, createPill, createRow, createThumb} from './widgets.js';
+import {artworkStyle, createArtwork, createActionButton, createLabel, createPill, createRow} from './widgets.js';
 import {PANE_INSET, radiusStyle} from './shape.js';
 import {Tracker} from './tracking.js';
 import {adjustAnimationTime, ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
 
-// What the pane keeps around its content, per frame, and the gap between its
-// two columns; the stylesheet carries the same numbers. Sizes are worked out
-// here rather than read back off an allocation, because the popup has to know
-// how wide the side column will be before anything is on screen.
+// What the pane keeps around its content, per frame; the stylesheet carries
+// the same numbers. Sizes are worked out here rather than read back off an
+// allocation, because the popup has to know how wide the side column will be
+// before anything is on screen.
 //
 // Everything below is logical pixels, as the stylesheet's are: each is
 // multiplied by the scale factor where it meets an allocation, and left alone
@@ -25,9 +25,6 @@ import {adjustAnimationTime, ensureActorVisibleInScrollView} from 'resource:///o
 // adds `shape.js` PANE_INSET on top: what shows between the panel's edge and
 // the artwork is the two together, and it comes to the same 32 either way.
 const PADDING = {pane: 28, bare: 32 - PANE_INSET};
-const COLUMN_GAP = 32;
-// What the main column gives up to the list's own padding and scrollbar.
-const LIST_CHROME = 16;
 
 // The hero fills the pane's height, less its padding and the two action
 // buttons beneath it, up to this cap. It stops well short of a big screen:
@@ -36,19 +33,16 @@ const LIST_CHROME = 16;
 const HERO_MAX_HEIGHT = 560;
 const HERO_RESERVED = 2 * 52 + 28;         // two action buttons and the gaps
 const HERO_MAX_WIDTH_FRACTION = 0.34;      // of the pane width
-const THUMB_SIZE = 132;
-const THUMB_GAP = 12;
-// `.ml-thumb` padding, 4px a side: what a thumbnail's tile adds to its art.
-const THUMB_PADDING = 8;
+// The hero's floor on a small work area — see `_heroSize`.
+const HERO_MIN = 132;
 // 14px type at the stylesheet's line-height: 1.5.
 const SUMMARY_LINE = 21;
 const SUMMARY_LINES = 5;
-// A season is a couple of dozen episodes, but a photo album runs to thousands.
+// A season runs to a couple of dozen episodes, a film's files to a handful.
 // The first batch is a screenful — and the one that is staggered in — and the
 // rest follow as the list scrolls.
 const FIRST_ROWS = 24;
 const ROWS_PER_BATCH = 16;
-const THUMB_ROWS_PER_BATCH = 3;
 
 export class DetailView {
     // `frame` is what the pane draws around itself: its own rounded, bordered
@@ -73,7 +67,6 @@ export class DetailView {
         this._tabButtons = [];
         this._width = 0;
         this._height = 0;
-        this._heroWidth = 240;
         this._deferredList = 0;
         this._deferredMain = 0;
         this._columns = null;
@@ -145,9 +138,9 @@ export class DetailView {
         const byWidth = Math.round(this._width * HERO_MAX_WIDTH_FRACTION * aspect);
         // A small screen at the smallest `detail-size` leaves less room than
         // the buttons under the artwork take, and the artwork would come out
-        // at nothing or below it. A thumbnail's size is the floor; the panel
-        // grows around it, since it is sized from the column's own height.
-        const height = Math.max(THUMB_SIZE * scale, Math.min(byHeight, byWidth));
+        // at nothing or below it. HERO_MIN is the floor; the panel grows
+        // around it, since it is sized from the column's own height.
+        const height = Math.max(HERO_MIN * scale, Math.min(byHeight, byWidth));
         return {width: Math.round(height / aspect), height};
     }
 
@@ -304,7 +297,6 @@ export class DetailView {
         const side = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'ml-detail-side', x_expand: false, y_expand: true});
 
         const {width: heroW, height: heroH} = this._heroSize(section.aspect);
-        this._heroWidth = heroW;
         this.hero = createArtwork({
             path: item.art,
             title: item.title,
@@ -352,8 +344,6 @@ export class DetailView {
             main.add_child(createLabel(item.tagline, 'ml-tagline'));
 
         const facts = new St.BoxLayout({style_class: 'ml-facts', y_align: Clutter.ActorAlign.CENTER});
-        if (item.subtitle)
-            facts.add_child(createPill(item.subtitle, 'ml-fact ml-fact-strong'));
         if (item.year)
             facts.add_child(createPill(String(item.year), 'ml-fact'));
         if (item.rating)
@@ -428,7 +418,7 @@ export class DetailView {
         const group = this._groups[index];
         const old = this._list;
         const list = group?.entries.length
-            ? (this.item.layout === 'grid' ? this._buildThumbGrid(group) : this._buildList(group))
+            ? this._buildList(group)
             : new St.Label({text: 'Nothing here yet.', style_class: 'ml-empty-hint', x_expand: true});
         this._list = list;
         this._listHost.add_child(list);
@@ -463,7 +453,6 @@ export class DetailView {
                     subtitle: entry.subtitle,
                     badges: entry.badges,
                     size: entry.size,
-                    icon: entry.icon ?? 'media-playback-start-symbolic',
                     onActivate: () => this._open(entry.path),
                     watched: tracker && entry.path ? tracker.isWatched(entry.path) : null,
                     onWatched: watched => tracker.setWatched(entry.path, watched),
@@ -481,60 +470,6 @@ export class DetailView {
             if (first)
                 staggerIn(batch, {step: 12, cap: 160, fromY: 8});
             first = false;
-            return next < entries.length;
-        });
-        return scroll;
-    }
-
-    _buildThumbGrid(group) {
-        const scroll = new St.ScrollView({x_expand: true, y_expand: true, overlay_scrollbars: true, style_class: 'vfade ml-list-scroll'});
-        scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
-        const rows = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true, style_class: 'ml-thumb-grid'});
-        scroll.set_child(rows);
-
-        const scale = this._scale;
-        const thumbSize = THUMB_SIZE * scale;
-        const gap = THUMB_GAP * scale;
-        // A thumbnail takes its tile's padding as well as its artwork.
-        const cell = thumbSize + THUMB_PADDING * scale;
-        // The main column is the pane minus the side column and paddings.
-        const taken = this._heroWidth + 2 * this.padding + (COLUMN_GAP + LIST_CHROME) * scale;
-        const usable = Math.max(cell, this._width - taken);
-        const columns = Math.max(1, Math.floor((usable + gap) / (cell + gap)));
-
-        const entries = group.entries;
-        let next = 0;
-        let first = true;
-        let batchRows = Math.max(1, Math.ceil(this._height / (cell + gap)) + 1);
-        fillOnScroll(scroll, () => {
-            const limit = Math.min(entries.length, next + batchRows * columns);
-            const batch = [];
-            while (next < limit) {
-                const row = new St.BoxLayout({style: `spacing: ${THUMB_GAP}px; margin-bottom: ${THUMB_GAP}px;`});
-                const end = Math.min(limit, next + columns);
-                for (; next < end; next++) {
-                    const entry = entries[next];
-                    const thumb = createThumb({
-                        path: entry.thumb,
-                        size: thumbSize,
-                        accessibleName: entry.title,
-                        onActivate: () => this._open(entry.path),
-                    });
-                    // As in the list: Tab past the fold has to scroll, or the
-                    // grid never tops itself up.
-                    thumb.connect('key-focus-in', () => ensureActorVisibleInScrollView(scroll, thumb));
-                    row.add_child(thumb);
-                }
-                batch.push(row);
-                rows.add_child(row);
-            }
-            // The rows arrive one after another, not the four dozen thumbnails
-            // in them: a transition apiece buys nothing once they share a delay,
-            // and a row is one actor to fade rather than a screenful.
-            if (first)
-                staggerIn(batch, {step: 24, cap: 200, fromY: 8});
-            first = false;
-            batchRows = THUMB_ROWS_PER_BATCH;
             return next < entries.length;
         });
         return scroll;

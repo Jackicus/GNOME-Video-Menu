@@ -82,7 +82,8 @@ export class Tracker extends Signals.EventEmitter {
         this._again = new Set();
     }
 
-    // Only the sections of things that are watched: an album or a game is not.
+    // Only the sections of things that are watched — every section names one
+    // now, but a pick with no section of its own (nothing is open) is not.
     static tracks(section) {
         return !!section?.watched;
     }

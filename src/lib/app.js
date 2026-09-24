@@ -64,9 +64,6 @@ const DETAIL = 'detail';
 // Open a file with the command its section names, or the system default app —
 // which is also what a command whose program is not installed gets, since the
 // video sections name VLC by default and not every machine has it.
-// An array is a command line to run as-is (a game launcher, an emulator). The
-// shell's own spawn helper says so in a notification when a launch fails, and
-// so does this for the launches it does itself.
 //
 // `beforeLaunch` runs just before a file that is there is launched — not a
 // folder, and not a path that has gone — which is only known once the file
@@ -74,11 +71,6 @@ const DETAIL = 'detail';
 function openPath(path, command = '', beforeLaunch = null) {
     if (!path)
         return;
-    if (Array.isArray(path)) {
-        beforeLaunch?.();
-        Util.spawn(path);
-        return;
-    }
     // This runs in the compositor, and media often lives on a network share or
     // an automount that has idled out: asked synchronously, the whole desktop
     // would stand still for as long as the share takes to come back.

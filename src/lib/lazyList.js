@@ -1,8 +1,8 @@
 // Filling a scroll view a batch at a time.
 //
 // The library grid and the detail lists are both "one actor per thing you own",
-// and a section or a photo album can hold thousands of things while the screen
-// shows a couple of dozen. Building all of them costs a St.Button subtree each,
+// and a section can hold thousands of things while the screen shows a couple
+// of dozen. Building all of them costs a St.Button subtree each,
 // laid out and styled in one go on the compositor's own main loop — the stall
 // lands exactly when a section is opened or switched, which is the moment the
 // surface is meant to be animating.
