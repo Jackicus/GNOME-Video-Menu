@@ -53,7 +53,7 @@ export class MediaMenu {
         this._views = new Map();
         this._buttons = new SectionButtons({
             sections: this._sections,
-            onActivate: key => this._toggle(key),
+            onActivate: key => this.toggle(key),
         });
         this._current = null;
         // The slot the shell's own layout last measured for a view of ours,
@@ -246,13 +246,13 @@ export class MediaMenu {
         }
     }
 
-    // A section's button: its view, opening the overview onto it if need be;
+    // A section's button, or its shortcut: its view, opening the overview onto it if need be;
     // or, when that view is what is up, the way back out — to the desktop if
     // this is an overview a button of ours opened, else unchecked, which the
     // shell takes back to the window picker. With another section's view up
     // the overview goes down and comes back up onto this one (see `hidden`),
     // rather than the grids swapping inside it.
-    _toggle(key) {
+    toggle(key) {
         if (Main.overview.visible && this._showAppsButton.checked && this._current) {
             if (this._current !== key) {
                 this._next = key;
@@ -271,6 +271,16 @@ export class MediaMenu {
     // overview does, so taking the overview down closes it.
     close() {
         Main.overview.hide();
+    }
+
+    // A section's view is what the overview is showing.
+    get isShowing() {
+        return Main.overview.visible && !!this._showAppsButton?.checked && !!this._current;
+    }
+
+    // The grid on show, for a page turn with the keyboard not yet in it.
+    get currentView() {
+        return this.isShowing ? this._views.get(this._current) ?? null : null;
     }
 
     // What is up, for a rebuild to put back: the section showing, and whether

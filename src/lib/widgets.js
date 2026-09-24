@@ -363,6 +363,14 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
             disc.checked = value;
             sync();
         };
+        // The disc from the keyboard: it sits inside the row's button, and
+        // St's focus stops at the row, so a remote or a controller reaches it
+        // through the row that has the focus (controls.js, Mark watched).
+        row.toggleWatched = () => {
+            disc.checked = !disc.checked;
+            sync();
+            onWatched?.(disc.checked);
+        };
         content.add_child(disc);
     }
 

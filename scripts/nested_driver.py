@@ -50,6 +50,12 @@ KEYSYMS = {
     "Page_Up": 0xFF55, "Page_Down": 0xFF56,
     "Super": 0xFFEB, "Super_L": 0xFFEB, "Alt": 0xFFE9, "Alt_L": 0xFFE9,
     "Control": 0xFFE3, "Ctrl": 0xFFE3, "Shift": 0xFFE1,
+    # F1..F12, for a shortcut that takes a function key.
+    **{f"F{n}": 0xFFBD + n for n in range(1, 13)},
+    # What a media remote sends (xkbcommon-keysyms.h).
+    "XF86OK": 0x10081160, "XF86Select": 0x1008FFA0, "XF86Back": 0x1008FF26,
+    "XF86HomePage": 0x1008FF18, "XF86Exit": 0x100810AE,
+    "XF86ChannelUp": 0x10081192, "XF86ChannelDown": 0x10081193,
 }
 
 

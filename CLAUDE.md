@@ -201,6 +201,29 @@ its grid recedes, a list as the pane is filled — and Clutter drops key focus t
 the stage when that happens, so `app.js` watches `notify::key-focus` and takes
 it back while the surface is what the workspace shows.
 
+**Remotes and controllers are the keyboard too** (`lib/controls.js`, the
+actions in `lib/actions.js`, the Controls page in the prefs). Ten actions —
+the four directions, Select, Back, Home, a page each way, Mark watched — each
+with a list of keys (`keys-<action>`, `a(uu)` of keyval and modifiers: numbers,
+because Clutter's keysym table lacks half of what a remote sends, `XF86OK` and
+`XF86HomePage` among them) and a list of controller inputs (`pad-<action>`,
+`"button:304"`, `"axis:1-"`). The first six stand for a key and are replayed
+as it through a Clutter virtual keyboard, so they do exactly what the arrows,
+Enter and Escape do wherever the keyboard is; paging (`mediaGrid.js`
+`pageBy`, since the shell's grid turns no page for a key), Home and Mark
+watched (a row's `toggleWatched`, since St's focus stops at the row and never
+reaches the disc inside it) are done directly. A bound key is handed over by
+the view it reached — the surface's `_onKeyPress`, a grid's own key handler,
+a panel's `vfunc_key_press_event` — so a binding means nothing outside a
+library and a remote's Back stays the browser's Back. Controllers are read
+with libmanette (loaded on demand; the extension runs without it) and acted
+on only while `_controlsActive()`, except Home, which opens the library when
+no window has the focus. The arrows, Enter and Escape are never offered for
+binding: they always work. A pop-up panel holds the keyboard itself as it
+opens, and an arrow from the panel finds nothing to move to, so its first
+navigation key lands where Tab would (`panel.js` `_focusFirst`) — without it
+a remote with only arrows could not get into one.
+
 Where each of the two things opens is a setting, and the two are read
 **independently of each other**: `library-opens-in` for a section's grid,
 `detail-opens-in` for the pane of a picked item. Both take the same four
@@ -247,7 +270,8 @@ in either is browsed by a *browser* of its own, opened from buttons made as
 Show Apps is and put beside it (in the dash, or in Dash to Panel's panel).
 `sectionButtons.js` builds those buttons — a `Dash.ShowAppsIcon` subclass for
 its icon and label — and both places open from them. Those
-buttons are the only way in, and they behave as a dock's Show Apps does:
+buttons (and the section's shortcut, below, which presses them) are the only
+way in, and they behave as a dock's Show Apps does:
 pressed on the desktop they open the overview themselves, so a second press or
 Escape closes it again and lands on the desktop; pressed with the overview
 already up, back to the window picker. Every way out of an overview a button
@@ -264,6 +288,20 @@ changing, a rescan landing) tears the browser down and makes another, and puts
 back the section that was showing (`state`/`restore` on the browser), so the
 change shows where it is being looked for rather than on the next press — a
 `columns` change used to leave the overview on the app grid.
+
+**Each section has a keyboard shortcut**, `<prefix>-shortcut` (`as`, empty by
+default so nothing of the system's is taken), grabbed with
+`Main.wm.addKeybinding` the way the shell grabs its own — mutter follows the
+setting, so one set in the preferences works at once, and it is not listed in
+GNOME Settings. A press is the section's button wherever the library opens
+(`app.js` `_onShortcut`): `toggle` on a browser, and on the surface the
+launcher from anywhere, with a second press going Home. It is grabbed in
+`POPUP` mode too, but only so the modal library's own panel can be closed or
+switched with it; over any other popup it does nothing. The preferences set it
+the way GNOME Settings does (`prefs.js` `_captureShortcut`): system shortcuts
+are inhibited while the dialog listens — the shell asks once whether the
+Extensions app may — and a key the window manager, the shell, the media keys, a
+custom shortcut or another section already has is refused, not taken over.
 
 In the **`menu` library** `mediaMenu.js` puts a grid per section into the
 overview's app-grid slot. In the **`modal` library** (`libraryWindow.js`) a

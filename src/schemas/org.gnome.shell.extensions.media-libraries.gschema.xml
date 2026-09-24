@@ -200,6 +200,133 @@
             <description>Where the detail pane of a picked item is drawn. "desktop" puts it on the wallpaper of the workspace the pick was made on — in place of the grid, when the library is drawn there too. "workspaces" puts it on a workspace of its own and slides to it. "menu" pops it up the way the shell opens an app folder, zooming out of the tile, over whatever the pick was made on, and it goes when that tile does. "modal" is the same panel hosted over the desktop always, outliving the overview and a change of workspace until Escape or a click away closes it.</description>
         </key>
 
+        <!-- A keyboard shortcut per section, grabbed by the shell the way its
+             own are (Main.wm.addKeybinding), so the same accelerator strings
+             GNOME's keybinding settings hold. All empty by default: nothing of
+             the system's is taken until one is set. -->
+        <key name="tv-shows-shortcut" type="as">
+            <default>[]</default>
+            <summary>Open TV shows</summary>
+            <description>Opens the TV shows library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
+        </key>
+        <key name="films-shortcut" type="as">
+            <default>[]</default>
+            <summary>Open films</summary>
+            <description>Opens the films library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
+        </key>
+        <key name="music-shortcut" type="as">
+            <default>[]</default>
+            <summary>Open music</summary>
+            <description>Opens the music library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
+        </key>
+        <key name="photos-shortcut" type="as">
+            <default>[]</default>
+            <summary>Open photos</summary>
+            <description>Opens the photos library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
+        </key>
+        <key name="games-shortcut" type="as">
+            <default>[]</default>
+            <summary>Open games</summary>
+            <description>Opens the games library wherever library-opens-in puts it, and closes it again when it is what is up. Empty is no shortcut.</description>
+        </key>
+
+        <!-- Remotes, controllers and keys of the user's own (lib/actions.js,
+             lib/controls.js). keys-<action> are (keyval, modifiers) pairs,
+             numbers because the shell cannot read a key's name, and apply only
+             while a library has the keyboard; the arrows, Enter and Escape
+             always work besides. The defaults are a media remote's: OK and
+             Select (0x10081160, 0x1008ffa0), Back and Exit (0x1008ff26,
+             0x100810ae), Home page (0x1008ff18), Page Up/Down and Channel
+             Down/Up. pad-<action> are controller inputs as libmanette reports
+             them, "button:<code>" or "axis:<code>" and a direction; the
+             defaults are a mapped pad's D-pad, left stick, A, B, Menu, the
+             bumpers and Y. -->
+        <key name="keys-up" type="a(uu)">
+            <default>@a(uu) []</default>
+            <summary>Keys for up</summary>
+        </key>
+        <key name="keys-down" type="a(uu)">
+            <default>@a(uu) []</default>
+            <summary>Keys for down</summary>
+        </key>
+        <key name="keys-left" type="a(uu)">
+            <default>@a(uu) []</default>
+            <summary>Keys for left</summary>
+        </key>
+        <key name="keys-right" type="a(uu)">
+            <default>@a(uu) []</default>
+            <summary>Keys for right</summary>
+        </key>
+        <key name="keys-select" type="a(uu)">
+            <default>[(268964192, 0), (269025184, 0)]</default>
+            <summary>Keys for select</summary>
+        </key>
+        <key name="keys-back" type="a(uu)">
+            <default>[(269025062, 0), (268964014, 0)]</default>
+            <summary>Keys for back</summary>
+        </key>
+        <key name="keys-home" type="a(uu)">
+            <default>[(269025048, 0)]</default>
+            <summary>Keys for home</summary>
+        </key>
+        <key name="keys-page-previous" type="a(uu)">
+            <default>[(65365, 0), (268964243, 0)]</default>
+            <summary>Keys for previous page</summary>
+        </key>
+        <key name="keys-page-next" type="a(uu)">
+            <default>[(65366, 0), (268964242, 0)]</default>
+            <summary>Keys for next page</summary>
+        </key>
+        <key name="keys-watched" type="a(uu)">
+            <default>@a(uu) []</default>
+            <summary>Keys for mark watched</summary>
+        </key>
+        <key name="pad-up" type="as">
+            <default>['button:544','axis:1-','axis:17-']</default>
+            <summary>Controller inputs for up</summary>
+        </key>
+        <key name="pad-down" type="as">
+            <default>['button:545','axis:1+','axis:17+']</default>
+            <summary>Controller inputs for down</summary>
+        </key>
+        <key name="pad-left" type="as">
+            <default>['button:546','axis:0-','axis:16-']</default>
+            <summary>Controller inputs for left</summary>
+        </key>
+        <key name="pad-right" type="as">
+            <default>['button:547','axis:0+','axis:16+']</default>
+            <summary>Controller inputs for right</summary>
+        </key>
+        <key name="pad-select" type="as">
+            <default>['button:304']</default>
+            <summary>Controller inputs for select</summary>
+        </key>
+        <key name="pad-back" type="as">
+            <default>['button:305']</default>
+            <summary>Controller inputs for back</summary>
+        </key>
+        <key name="pad-home" type="as">
+            <default>['button:315']</default>
+            <summary>Controller inputs for home</summary>
+        </key>
+        <key name="pad-page-previous" type="as">
+            <default>['button:310']</default>
+            <summary>Controller inputs for previous page</summary>
+        </key>
+        <key name="pad-page-next" type="as">
+            <default>['button:311']</default>
+            <summary>Controller inputs for next page</summary>
+        </key>
+        <key name="pad-watched" type="as">
+            <default>['button:307']</default>
+            <summary>Controller inputs for mark watched</summary>
+        </key>
+        <key name="gamepad-enabled" type="b">
+            <default>true</default>
+            <summary>Read game controllers</summary>
+            <description>Navigate a library with a game controller, through libmanette. Only acted on while a library is on screen, except Home, which opens it when no window has the keyboard.</description>
+        </key>
+
         <!-- Desktop placement -->
         <key name="workspace-index" type="i">
             <default>0</default>

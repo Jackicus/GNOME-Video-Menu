@@ -250,6 +250,14 @@
     spacing: 10px;
 }
 
+/* The theme rings a focused `.button.default` in its own accent, which on the
+ * accent fill is next to invisible — and from across a room, with a remote,
+ * the ring is the only way to tell where you are. The accent's foreground
+ * colour is the one that shows against it. */
+.ml-action.default:focus {
+    box-shadow: inset 0 0 0 2px -st-accent-fg-color !important;
+}
+
 /* Season / group tabs. */
 .ml-tabs {
     margin-top: 4px;

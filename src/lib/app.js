@@ -33,6 +33,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 
 import {Duration, Ease, POP_SCALE, allocateNow, fadeTo, flyClone, rectIn} from './anim.js';
 import {SECTIONS, libraryCountLabel, loadLibrary, libraryPath, migrateOpenCommand, openCommandKey, sectionByKey} from './library.js';
@@ -47,6 +48,7 @@ import {LibraryWindow} from './libraryWindow.js';
 import {DetailDialog} from './detailDialog.js';
 import {Tracker} from './tracking.js';
 import {PlaybackWatcher} from './playback.js';
+import {Controls, NAVIGATION_KEYS, handleBoundKey} from './controls.js';
 
 // Gap between the surface and the work-area edges, in logical px.
 const OUTER_MARGIN = 28;
@@ -59,12 +61,6 @@ const WORKSPACE_SLIDE_TIME = 250;
 // `_placeForWorkspace` names: HOME, a section key, or this. There is one pane
 // and one pick, so there is only ever one of these.
 const DETAIL = 'detail';
-// What counts as "start moving around the page" when nothing is focused yet.
-const NAVIGATION_KEYS = [
-    Clutter.KEY_Tab, Clutter.KEY_ISO_Left_Tab,
-    Clutter.KEY_Up, Clutter.KEY_Down, Clutter.KEY_Left, Clutter.KEY_Right,
-];
-
 // Open a file with the command its section names, or the system default app —
 // which is also what a command whose program is not installed gets, since the
 // video sections name VLC by default and not every machine has it.
@@ -197,6 +193,14 @@ export class MediaLibrariesApp {
         this._tracker = new Tracker(this._settings);
         // Which marks them, and resumes what was left halfway.
         this._playback = new PlaybackWatcher(this._settings, this._tracker);
+        // Remotes, controllers and keys of the user's own (controls.js).
+        this._controls = new Controls(this._settings, {
+            isActive: () => this._controlsActive(),
+            onHome: () => this._controlsHome(),
+            onOpen: () => this._controlsOpen(),
+            currentView: () => this._browser?.currentView ??
+                (this._mode === 'library' ? this._pages.get(this._sectionKey)?.library : null),
+        });
     }
 
     // ------------------------------------------------------------------
@@ -204,6 +208,7 @@ export class MediaLibrariesApp {
     // ------------------------------------------------------------------
     enable() {
         migrateOpenCommand(this._settings);
+        this._controls.enable();
         this._tracker.enable();
         this._playback.enable();
         this._sections = loadLibrary();
@@ -252,6 +257,19 @@ export class MediaLibrariesApp {
             }, this);
         }
 
+        // A shortcut per section, grabbed the way the shell grabs its own:
+        // the setting holds the accelerators, and mutter follows it as it
+        // changes, so a shortcut set in the preferences works at once. In the
+        // overview as well as on the desktop, as Super+A is — and over a
+        // popup, which is only so the modal library's own panel can be closed
+        // or switched with it; see `_onShortcut`.
+        for (const section of SECTIONS) {
+            Main.wm.addKeybinding(`${section.prefix}-shortcut`, this._settings,
+                Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+                () => this._onShortcut(section.key));
+        }
+
         // The scanner writes library.json atomically; refresh when it lands so
         // a rescan from the preferences shows up without touching the shell.
         try {
@@ -276,6 +294,8 @@ export class MediaLibrariesApp {
     }
 
     disable() {
+        for (const section of SECTIONS)
+            Main.wm.removeKeybinding(`${section.prefix}-shortcut`);
         global.workspace_manager.disconnectObject(this);
         global.display.disconnectObject(this);
         Main.layoutManager.disconnectObject(this);
@@ -301,6 +321,7 @@ export class MediaLibrariesApp {
         // Where a file playing now got to goes down before the tracker stops.
         this._playback.disable();
         this._tracker.disable();
+        this._controls.disable();
     }
 
     _teardown() {
@@ -636,6 +657,92 @@ export class MediaLibrariesApp {
             this._opened.set(key, workspace);
         }
         workspace.activate(global.get_current_time());
+    }
+
+    // A section's shortcut: its library, wherever it opens, or — when that is
+    // what is up — the way back out, as its button is. A browser is pressed
+    // exactly as its button would be. On the surface it is the home menu's
+    // launcher from anywhere: the overview goes, and the page comes up on
+    // the home workspace or on the section's own; a second press goes Home,
+    // as the header's Home button does.
+    _onShortcut(key) {
+        if (!this._enabledSections().some(s => s.key === key))
+            return;
+        // A popup holds the keyboard for itself — a menu in the top bar, the
+        // detail pop-up — unless it is the modal library's panel, which the
+        // shortcut closes or switches as the section's button does.
+        if (Main.actionMode === Shell.ActionMode.POPUP &&
+            !(this._browser instanceof LibraryWindow && this._browser.state.key))
+            return;
+        if (this._browser) {
+            this._browser.toggle(key);
+            return;
+        }
+        if (!this._libraryOnSurface() || this._busy)
+            return;
+        const wm = global.workspace_manager;
+        const overview = Main.overview.visible;
+        const here = this._placeForWorkspace(wm.get_active_workspace());
+        if (here === key && this._mode === 'library' && !overview) {
+            this._goHome();
+            return;
+        }
+        Main.overview.hide();
+        if (this._libraryClaimsWorkspaces()) {
+            if (here !== key)
+                this._openSection(key);
+            else if (this._mode !== 'library')
+                this._showSectionNow(key, {reveal: !overview});
+            return;
+        }
+        // Every section shares Home: the page first, then the slide to it.
+        const home = wm.get_workspace_by_index(this._targetWorkspace());
+        const sliding = home && wm.get_active_workspace() !== home;
+        this._showSectionNow(key, {reveal: !sliding && !overview});
+        home?.activate(global.get_current_time());
+        this._syncVisibility(true);
+        this._previews?.invalidate();
+    }
+
+    // Is a library what has the keyboard — a pop-up of ours, a browser on
+    // show, or the surface on a workspace no window has the focus of? A
+    // controller is only acted on while one is.
+    _controlsActive() {
+        if (this._dialog?.isOpen || this._browser?.isShowing)
+            return true;
+        return !!this._container?.visible && this._onTarget() && !Main.overview.visible &&
+            !global.display.focus_window && Main.modalCount === 0;
+    }
+
+    // Home, from a remote or a controller: all the way out — to the home
+    // menu on the surface, to the desktop from a browser or a pop-up.
+    _controlsHome() {
+        this._dialog?.popdown();
+        if (this._browser) {
+            this._browser.close();
+            return;
+        }
+        if (this._libraryOnSurface() && this._mode !== HOME)
+            this._goHome();
+    }
+
+    // Home on a controller with nothing of ours up: the library, opened, when
+    // nothing else has the keyboard — never over a window, where it would
+    // be a game's Start button too.
+    _controlsOpen() {
+        if (global.display.focus_window || Main.modalCount > 0)
+            return;
+        if (this._browser) {
+            const first = this._enabledSections().find(s => this._sections[s.key]?.length);
+            if (first)
+                this._browser.open(first.key);
+            return;
+        }
+        if (!this._libraryOnSurface())
+            return;
+        const home = global.workspace_manager.get_workspace_by_index(this._targetWorkspace());
+        home?.activate(global.get_current_time());
+        this._syncVisibility(true);
     }
 
     // The way back out to the home menu, from a section's library or from a
@@ -1355,6 +1462,9 @@ export class MediaLibrariesApp {
     // item to the library, out of a library to the home menu. Everything else
     // — Tab, the arrows, Enter on a tile — is St's own focus handling.
     _onKeyPress(event) {
+        // A key a remote or a binding of the user's makes something else.
+        if (handleBoundKey(event))
+            return Clutter.EVENT_STOP;
         const symbol = event.get_key_symbol();
         if (symbol === Clutter.KEY_Escape) {
             if (this._mode === 'detail')

@@ -22,6 +22,7 @@ import * as AppDisplay from 'resource:///org/gnome/shell/ui/appDisplay.js';
 import * as IconGrid from 'resource:///org/gnome/shell/ui/iconGrid.js';
 
 import {staggerIn} from './anim.js';
+import {handleBoundKey} from './controls.js';
 import {createArtwork} from './widgets.js';
 
 // Not exported by the shell, but it is what AppDisplay extends.
@@ -292,6 +293,11 @@ class MediaLibrariesMediaView extends BaseAppView {
         global.focus_manager.add_group(this);
         this.connect('destroy', () => global.focus_manager.remove_group(this));
 
+        // A remote's keys, or the user's own, reach the grid before anything
+        // around it: in the overview there is nothing of ours around it.
+        this.connect('key-press-event', (_view, event) => handleBoundKey(event)
+            ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE);
+
         // The page dots keep their room whether or not they show. The shell
         // hides them for a single page (pageIndicators.js setNPages), which
         // hands the grid their height and re-centres it: a section with one
@@ -364,14 +370,30 @@ class MediaLibrariesMediaView extends BaseAppView {
     // wherever the focus chain happens to begin — that can be a page away, and
     // the grid would page over to it.
     focusFirst() {
-        // Which page is showing is the scroll adjustment's answer, not the
-        // grid's: the grid's own idea of it is whatever the last batch of
-        // tiles left behind.
-        const {value, page_size: pageSize} = this._adjustment;
-        const page = pageSize > 0 ? Math.round(value / pageSize) : 0;
-        const item = this._media[page * this._perPage] ?? this._media[0];
+        const item = this._media[this._shownPage() * this._perPage] ?? this._media[0];
         item?.grab_key_focus();
         return !!item;
+    }
+
+    // Which page is showing is the scroll adjustment's answer, not the
+    // grid's: the grid's own idea of it is whatever the last batch of tiles
+    // left behind.
+    _shownPage() {
+        const {value, page_size: pageSize} = this._adjustment;
+        return pageSize > 0 ? Math.round(value / pageSize) : 0;
+    }
+
+    // A page on or back, from a remote or a controller: the shell's grid
+    // turns a page for the scroll wheel, a swipe and its arrows, but not for
+    // a key. The keyboard goes with it to the new page's first tile — left a
+    // page behind, the next arrow would turn it straight back.
+    pageBy(delta) {
+        const page = this._shownPage() + delta;
+        if (page < 0 || page * this._perPage >= this._data.length)
+            return false;
+        this.goToPage(page);
+        this._media[page * this._perPage]?.grab_key_focus();
+        return true;
     }
 
     _createGrid() {

@@ -38,6 +38,7 @@ import * as Layout from 'resource:///org/gnome/shell/ui/layout.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {Duration, Ease, POP_SCALE, easeProps, rectIn} from './anim.js';
+import {NAVIGATION_KEYS, handleBoundKey} from './controls.js';
 import {radiusStyle} from './shape.js';
 
 // Between the panel and the edges of the work area, and the size it will not
@@ -468,10 +469,25 @@ export const MediaPanel = GObject.registerClass({
     }
 
     vfunc_key_press_event(event) {
+        if (handleBoundKey(event))
+            return Clutter.EVENT_STOP;
+
         if (global.focus_manager.navigate_from_event(event))
             return Clutter.EVENT_STOP;
 
+        // The panel holds the keyboard itself as it opens, and an arrow from
+        // the panel finds nothing beside it to move to — only Tab started the
+        // chain, which left a remote with nothing but arrows shut out. Any
+        // way in lands where Tab would, or where the subclass says.
+        if (global.stage.get_key_focus() === this &&
+            NAVIGATION_KEYS.includes(event.get_key_symbol()) && this._focusFirst())
+            return Clutter.EVENT_STOP;
+
         return Clutter.EVENT_PROPAGATE;
+    }
+
+    _focusFirst() {
+        return this.navigate_focus(null, St.DirectionType.TAB_FORWARD, false);
     }
 
     // Out of `source`, a tile or a button; centred on the current monitor when

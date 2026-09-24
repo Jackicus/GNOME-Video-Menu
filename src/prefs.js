@@ -4,8 +4,10 @@ import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 
 import {SECTIONS as LIBRARY_SECTIONS, migrateOpenCommand, openCommandKey, readSections} from './lib/library.js';
+import {ACTIONS, NATIVE_KEYS, padLabel} from './lib/actions.js';
 
 // Everything a source is, in one place: what it is called, what it is good
 // for, where its key comes from and which fields that key has.
@@ -130,6 +132,34 @@ const PAGES = {
 
 const SECTIONS = LIBRARY_SECTIONS.map(section => ({...section, ...PAGES[section.key]}));
 
+// Where the system's own shortcuts are kept, for a new one to be checked
+// against: the window manager's, the shell's, mutter's and the media keys,
+// whose `custom-keybindings` also lists the ones made in GNOME Settings.
+const SYSTEM_KEYBINDINGS = [
+    'org.gnome.desktop.wm.keybindings',
+    'org.gnome.shell.keybindings',
+    'org.gnome.mutter.keybindings',
+    'org.gnome.mutter.wayland.keybindings',
+    'org.gnome.settings-daemon.plugins.media-keys',
+];
+const MEDIA_KEYS = 'org.gnome.settings-daemon.plugins.media-keys';
+const CUSTOM_KEYBINDING = 'org.gnome.settings-daemon.plugins.media-keys.custom-keybinding';
+// Libadwaita's from 1.8 (GNOME 49); GTK's, deprecated since, before that.
+const ShortcutLabel = Adw.ShortcutLabel ?? Gtk.ShortcutLabel;
+
+// What a remote's keys are called. GTK's table predates the keys xkbcommon
+// gives a remote's evdev codes (0x10081xxx) and shows those as numbers.
+const REMOTE_KEYS = {
+    0x10081160: 'OK',
+    0x1008ffa0: 'Select',
+    0x100810ae: 'Exit',
+    0x1008ff18: 'Home',
+    0x10081166: 'Info',
+    0x10081192: 'Channel Up',
+    0x10081193: 'Channel Down',
+    0x100811b6: 'Context Menu',
+};
+
 // Fields of a multi-field credential are joined by a tab: it cannot occur in
 // any of the keys, and it keeps the setting one flat a{ss}.
 const FIELD_SEP = '\t';
@@ -148,6 +178,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         this._migrateFolders(settings);
 
         window.add(this._generalPage(state));
+        window.add(this._controlsPage(state));
         for (const section of SECTIONS)
             window.add(this._sectionPage(state, section));
     }
@@ -268,6 +299,8 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         });
         settings.bind('play-on-new-workspace', playRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         view.add(playRow);
+
+        page.add(this._shortcutsGroup(state));
 
         const desktop = new Adw.PreferencesGroup({title: 'Desktop'});
         page.add(desktop);
@@ -495,6 +528,377 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         state.rescanAll = {row: rescan, button};
 
         return page;
+    }
+
+    // ------------------------------------------------------------------
+    // Shortcuts
+    // ------------------------------------------------------------------
+    // A row per section, set by pressing the shortcut, as GNOME Settings sets
+    // its own. The extension grabs whatever `<prefix>-shortcut` holds
+    // (lib/app.js) and follows it as it changes, so nothing is registered
+    // here — writing the setting is the whole of it.
+    _shortcutsGroup(state) {
+        const {settings} = state;
+        const group = new Adw.PreferencesGroup({
+            title: 'Keyboard Shortcuts',
+            description: 'Open a section\'s library from anywhere, wherever libraries open; the same shortcut again closes it. None are set to begin with.',
+        });
+        for (const section of SECTIONS) {
+            const key = `${section.prefix}-shortcut`;
+            const row = new Adw.ActionRow({title: section.title, activatable: true});
+            const label = new ShortcutLabel({disabled_text: 'Disabled', valign: Gtk.Align.CENTER});
+            const clear = new Gtk.Button({
+                icon_name: 'edit-clear-symbolic', valign: Gtk.Align.CENTER,
+                tooltip_text: 'Remove this shortcut', css_classes: ['flat'],
+            });
+            clear.connect('clicked', () => settings.set_strv(key, []));
+            row.add_suffix(label);
+            row.add_suffix(clear);
+            const sync = () => {
+                const accel = settings.get_strv(key)[0] ?? '';
+                label.accelerator = accel;
+                clear.visible = accel !== '';
+            };
+            settings.connect(`changed::${key}`, sync);
+            sync();
+            row.connect('activated', () => this._captureShortcut(state, section));
+            group.add(row);
+        }
+        return group;
+    }
+
+    // A section's shortcut: GNOME Settings' own rules
+    // (cc-keyboard-shortcut-editor.c) — Escape cancels, Backspace removes it,
+    // and a key with no modifier is only taken when it types nothing, a
+    // function key or a media key. What the system already answers to is
+    // refused, not taken over: this is the extension's setting, not the
+    // system's.
+    _captureShortcut(state, section) {
+        const {settings} = state;
+        const key = `${section.prefix}-shortcut`;
+        this._keyDialog(state, {
+            title: `Open ${section.title}`,
+            description: 'Press the new shortcut. Esc cancels, Backspace removes it.',
+            onKey: (keyval, mods) => {
+                if (!mods && keyval === Gdk.KEY_Escape)
+                    return true;
+                if (!mods && keyval === Gdk.KEY_BackSpace) {
+                    settings.set_strv(key, []);
+                    return true;
+                }
+                const shown = keyLabel(keyval, mods);
+                const typing = !(mods & ~Gdk.ModifierType.SHIFT_MASK) &&
+                    !(keyval >= Gdk.KEY_F1 && keyval <= Gdk.KEY_F35) && keyval < 0x1008ff00;
+                if (typing)
+                    return `${shown} types a character. Add Ctrl, Alt or Super to it, or use a function or media key.`;
+                const accel = Gtk.accelerator_name(keyval, mods);
+                const clash = shortcutClash(settings, accel, key);
+                if (clash)
+                    return `${shown} is already taken — ${clash}. Try another, or Esc to cancel.`;
+                settings.set_strv(key, [accel]);
+                return true;
+            },
+        });
+    }
+
+    // The dialog GNOME Settings listens for a key in. `onKey` is handed each
+    // key pressed, lowered the way Settings lowers it (Shift kept only where
+    // it changed the key), and answers true to close, or a line saying why
+    // the key will not do. A modifier on its own is waited past; so, for a
+    // shortcut, is a bare arrow, Tab, Home, End or Page key, which GTK holds
+    // to be navigation — `anyKey` takes those too, since they are exactly
+    // what a remote or a Pico may send.
+    _keyDialog(state, {heading = 'Set Shortcut', title, description, onKey, anyKey = false}) {
+        const {window} = state;
+        const status = new Adw.StatusPage({
+            icon_name: 'preferences-desktop-keyboard-shortcuts-symbolic',
+            title,
+            description,
+        });
+        const toolbar = new Adw.ToolbarView({content: status});
+        toolbar.add_top_bar(new Adw.HeaderBar());
+        const dialog = new Adw.Dialog({title: heading, content_width: 440, child: toolbar});
+
+        const keys = new Gtk.EventControllerKey({propagation_phase: Gtk.PropagationPhase.CAPTURE});
+        keys.connect('key-pressed', (_controller, keyval, _keycode, modifiers) => {
+            let mods = modifiers & Gtk.accelerator_get_default_mod_mask() & ~Gdk.ModifierType.LOCK_MASK;
+            let lower = Gdk.keyval_to_lower(keyval);
+            if (lower === Gdk.KEY_ISO_Left_Tab)
+                lower = Gdk.KEY_Tab;
+            if (lower !== keyval)
+                mods |= Gdk.ModifierType.SHIFT_MASK;
+            if (!Gtk.accelerator_valid(lower, anyKey ? mods | Gdk.ModifierType.CONTROL_MASK : mods))
+                return Gdk.EVENT_STOP;
+            const answer = onKey(lower, mods);
+            if (answer === true)
+                dialog.close();
+            else if (answer)
+                status.description = answer;
+            return Gdk.EVENT_STOP;
+        });
+        // On the dialog, not the window: a dialog's keys never pass through
+        // the window's capture phase.
+        dialog.add_controller(keys);
+
+        // As GNOME Settings does while it listens: a key the system has taken
+        // reaches the dialog instead of doing what it does, so it can be said
+        // to be taken. The shell asks once whether this app may; refused, a
+        // taken key goes on doing its own thing and only the rest are heard.
+        const surface = window.get_surface();
+        surface?.inhibit_system_shortcuts?.(null);
+        dialog.connect('closed', () => surface?.restore_system_shortcuts?.());
+        dialog.present(window);
+        return dialog;
+    }
+
+    // ------------------------------------------------------------------
+    // Controls
+    // ------------------------------------------------------------------
+    // What a remote, a controller or keys of the user's own do in a library
+    // (lib/controls.js). Every action is two lists, `keys-<action>` and
+    // `pad-<action>`; a row shows one, adds to it by pressing the thing to
+    // add, and empties it.
+    _controlsPage(state) {
+        const {settings} = state;
+        const page = new Adw.PreferencesPage({title: 'Controls', icon_name: 'input-gaming-symbolic'});
+
+        const keys = new Adw.PreferencesGroup({
+            title: 'Remote and Keyboard',
+            description: 'The arrow keys, Enter and Escape always work. Add the keys a remote, a Pico or anything else that acts as a keyboard sends: they do these things while a library is on screen, and what they always did everywhere else.',
+        });
+        page.add(keys);
+        const pairs = action => settings.get_value(`keys-${action.key}`).deep_unpack();
+        for (const action of ACTIONS) {
+            keys.add(this._bindingRow(settings, action, {
+                key: `keys-${action.key}`,
+                labels: () => pairs(action).map(([keyval, mods]) => keyLabel(keyval, mods)),
+                add: () => this._captureNavKey(state, action),
+                addTip: 'Add a key',
+            }));
+        }
+        keys.add(this._resetRow(settings, ACTIONS.map(a => `keys-${a.key}`)));
+
+        const pads = new Adw.PreferencesGroup({
+            title: 'Game Controller',
+            description: 'Read only while a library is on screen, so games are left alone — except Home, which also opens the library when no window has the keyboard. Xbox, PlayStation and most other pads are ready as they are; anything else, a Pico running as a gamepad included, is set up by pressing its buttons here.',
+        });
+        page.add(pads);
+        const use = new Adw.SwitchRow({title: 'Use game controllers'});
+        settings.bind('gamepad-enabled', use, 'active', Gio.SettingsBindFlags.DEFAULT);
+        pads.add(use);
+        const connected = new Adw.ActionRow({title: 'Connected', subtitle: 'Looking…'});
+        pads.add(connected);
+        const padRows = [connected];
+        for (const action of ACTIONS) {
+            padRows.push(this._bindingRow(settings, action, {
+                key: `pad-${action.key}`,
+                // A mapped pad's D-pad is four buttons, an unmapped one's a
+                // hat, and both are bound, under the one name.
+                labels: () => [...new Set(settings.get_strv(`pad-${action.key}`).map(padLabel))],
+                subtitle: action.subtitle ?? null,
+                add: () => this._capturePad(state, action),
+                addTip: 'Add a button',
+            }));
+        }
+        padRows.push(this._resetRow(settings, ACTIONS.map(a => `pad-${a.key}`)));
+        for (const row of padRows) {
+            settings.bind('gamepad-enabled', row, 'sensitive', Gio.SettingsBindFlags.GET);
+            if (row !== connected)
+                pads.add(row);
+        }
+        this._watchPads(state, connected);
+
+        return page;
+    }
+
+    // One action's list: what is in it, a button to add to it, and one to
+    // empty it. Rebuilt from the setting on every change.
+    _bindingRow(settings, action, {key, labels, add, addTip, subtitle = action.subtitle ?? 'Besides the arrow key'}) {
+        const row = new Adw.ActionRow({title: action.title});
+        if (subtitle)
+            row.subtitle = subtitle;
+        const shown = new Gtk.Label({
+            css_classes: ['dim-label'],
+            ellipsize: Pango.EllipsizeMode.END,
+            max_width_chars: 22,
+            valign: Gtk.Align.CENTER,
+        });
+        const addButton = new Gtk.Button({
+            icon_name: 'list-add-symbolic', valign: Gtk.Align.CENTER,
+            tooltip_text: addTip, css_classes: ['flat'],
+        });
+        const clear = new Gtk.Button({
+            icon_name: 'edit-clear-symbolic', valign: Gtk.Align.CENTER,
+            tooltip_text: 'Remove them all', css_classes: ['flat'],
+        });
+        addButton.connect('clicked', add);
+        clear.connect('clicked', () => settings.set_value(key,
+            new GLib.Variant(settings.get_value(key).get_type_string(), [])));
+        row.add_suffix(shown);
+        row.add_suffix(addButton);
+        row.add_suffix(clear);
+        row.activatable_widget = addButton;
+        const sync = () => {
+            const names = labels();
+            shown.label = names.length ? names.join(', ') : 'None';
+            shown.tooltip_text = names.join(', ');
+            clear.sensitive = names.length > 0;
+        };
+        settings.connect(`changed::${key}`, sync);
+        sync();
+        return row;
+    }
+
+    _resetRow(settings, keys) {
+        const row = new Adw.ActionRow({title: 'Put back the defaults'});
+        const button = new Gtk.Button({label: 'Reset', valign: Gtk.Align.CENTER});
+        button.connect('clicked', () => keys.forEach(key => settings.reset(key)));
+        row.add_suffix(button);
+        return row;
+    }
+
+    // A key for `action`, pressed. It is added to the others, not in place of
+    // them; one the library already knows, one another action has, and one
+    // the system takes before the library can see it are refused.
+    _captureNavKey(state, action) {
+        const {settings} = state;
+        const key = `keys-${action.key}`;
+        const matches = (keyval, mods) => ([k, m]) => k === keyval && m === mods;
+        this._keyDialog(state, {
+            heading: 'Add a Key',
+            title: action.title,
+            description: 'Press the key on the remote or keyboard. Esc cancels.',
+            anyKey: true,
+            onKey: (keyval, mods) => {
+                if (!mods && keyval === Gdk.KEY_Escape)
+                    return true;
+                const shown = keyLabel(keyval, mods);
+                if (!mods && NATIVE_KEYS.some(name => Gdk[`KEY_${name}`] === keyval))
+                    return `${shown} already works in every library. Press another key, or Esc to cancel.`;
+                const bound = settings.get_value(key).deep_unpack();
+                if (bound.some(matches(keyval, mods)))
+                    return true;
+                const owner = ACTIONS.find(other => other !== action &&
+                    settings.get_value(`keys-${other.key}`).deep_unpack().some(matches(keyval, mods)));
+                if (owner)
+                    return `${shown} is already ${owner.title}. Press another key, or Esc to cancel.`;
+                const clash = shortcutClash(settings, Gtk.accelerator_name(keyval, mods), null);
+                if (clash)
+                    return `${shown} is taken by the system — ${clash} — and would never reach the library.`;
+                settings.set_value(key, new GLib.Variant('a(uu)', [...bound, [keyval, mods]]));
+                return true;
+            },
+        });
+    }
+
+    // A controller input for `action`: the first button pressed, or stick
+    // or D-pad pushed, on any controller. A stick is only taken once it has
+    // been seen at rest, so one that was already over (a trigger resting at
+    // one end) is not mistaken for the press.
+    async _capturePad(state, action) {
+        const {settings, window} = state;
+        const key = `pad-${action.key}`;
+        const status = new Adw.StatusPage({
+            icon_name: 'input-gaming-symbolic',
+            title: action.title,
+            description: 'Press the button, or push the stick or D-pad, on the controller. Esc cancels.',
+        });
+        const toolbar = new Adw.ToolbarView({content: status});
+        toolbar.add_top_bar(new Adw.HeaderBar());
+        const dialog = new Adw.Dialog({title: 'Set Controller Input', content_width: 440, child: toolbar});
+        dialog.present(window);
+
+        const Manette = await loadManette();
+        if (!Manette) {
+            status.description = 'libmanette is not installed, so controllers cannot be read.';
+            return;
+        }
+        const monitor = new Manette.Monitor();
+        const handlers = [];
+        const listen = (object, signal, handler) => handlers.push([object, object.connect(signal, handler)]);
+        const rest = new Map();
+        const take = input => {
+            const bound = settings.get_strv(key);
+            if (bound.includes(input)) {
+                dialog.close();
+                return;
+            }
+            const owner = ACTIONS.find(other => other !== action &&
+                settings.get_strv(`pad-${other.key}`).includes(input));
+            if (owner) {
+                status.description = `${padLabel(input)} is already ${owner.title}. Press another, or Esc to cancel.`;
+                return;
+            }
+            settings.set_strv(key, [...bound, input]);
+            dialog.close();
+        };
+        const axis = (device, code, value, hat) => {
+            const id = `${device.get_guid()}/${code}`;
+            const was = rest.get(id) ?? (hat ? 0 : undefined);
+            rest.set(id, Math.abs(value));
+            if (Math.abs(value) >= 0.7 && was !== undefined && was < 0.3)
+                take(`axis:${code}${value < 0 ? '-' : '+'}`);
+        };
+        const watch = device => {
+            listen(device, 'button-press-event', (_d, event) => {
+                const [ok, button] = event.get_button();
+                take(`button:${ok ? button : event.get_hardware_code()}`);
+            });
+            listen(device, 'absolute-axis-event', (_d, event) => {
+                const [ok, code, value] = event.get_absolute();
+                if (ok)
+                    axis(device, code, value, false);
+            });
+            listen(device, 'hat-axis-event', (_d, event) => {
+                const [ok, code, value] = event.get_hat();
+                if (ok)
+                    axis(device, code, value, true);
+            });
+        };
+        listen(monitor, 'device-connected', (_m, device) => watch(device));
+        const devices = monitor.iterate();
+        let device, count = 0;
+        while (([, device] = devices.next()) && device) {
+            watch(device);
+            count++;
+        }
+        if (!count)
+            status.description = 'No controller is connected. Connect one and press a button on it, or Esc to cancel.';
+        dialog.connect('closed', () => {
+            for (const [object, id] of handlers)
+                object.disconnect(id);
+            handlers.length = 0;
+        });
+    }
+
+    // Which controllers libmanette can see, kept up to date while the window
+    // is open — the quickest way to tell a pad that is not being read from a
+    // binding that is wrong.
+    async _watchPads(state, row) {
+        const Manette = await loadManette();
+        if (!Manette) {
+            row.subtitle = 'libmanette is not installed, so controllers cannot be read.';
+            return;
+        }
+        const monitor = state.padMonitor = new Manette.Monitor();
+        const names = new Map();
+        const sync = () => {
+            row.subtitle = names.size ? [...names.values()].join(', ') : 'None';
+        };
+        const add = device => {
+            names.set(device, device.get_name());
+            device.connect('disconnected', () => {
+                names.delete(device);
+                sync();
+            });
+            sync();
+        };
+        monitor.connect('device-connected', (_m, device) => add(device));
+        const devices = monitor.iterate();
+        let device;
+        while (([, device] = devices.next()) && device)
+            add(device);
+        sync();
     }
 
     // ------------------------------------------------------------------
@@ -1143,6 +1547,71 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
 }
 
 // "tmdb@2" names the second TMDB key; "wikipedia" names a source that has none.
+// What already answers to `accel`, by the name its setting gives it, or null:
+// the system's own shortcuts, the custom ones made in GNOME Settings, and
+// another section of ours. Accelerators are compared as GTK parses them, so
+// "<Primary>" and "<Control>" are one modifier.
+function shortcutClash(settings, accel, ownKey) {
+    const normal = text => {
+        const [ok, keyval, mods] = Gtk.accelerator_parse(text);
+        return ok && keyval ? Gtk.accelerator_name(Gdk.keyval_to_lower(keyval), mods) : null;
+    };
+    const wanted = normal(accel);
+    const source = Gio.SettingsSchemaSource.get_default();
+
+    for (const section of SECTIONS) {
+        const key = `${section.prefix}-shortcut`;
+        if (key !== ownKey && settings.get_strv(key).some(a => normal(a) === wanted))
+            return `Open ${section.title}`;
+    }
+    // A shortcut is grabbed everywhere, so it would swallow a remote's key
+    // before a library ever saw it.
+    for (const action of ACTIONS) {
+        const pairs = settings.get_value(`keys-${action.key}`).deep_unpack();
+        if (pairs.some(([keyval, mods]) => normal(Gtk.accelerator_name(keyval, mods)) === wanted))
+            return `${action.title}, on the Controls page`;
+    }
+    for (const id of SYSTEM_KEYBINDINGS) {
+        const schema = source.lookup(id, true);
+        if (!schema)
+            continue;
+        const system = new Gio.Settings({settings_schema: schema});
+        for (const name of schema.list_keys()) {
+            const key = schema.get_key(name);
+            if (key.get_value_type().dup_string() !== 'as')
+                continue;
+            if (system.get_strv(name).some(a => normal(a) === wanted))
+                return key.get_summary() || name;
+        }
+    }
+    const custom = source.lookup(CUSTOM_KEYBINDING, true);
+    if (custom && source.lookup(MEDIA_KEYS, true)) {
+        for (const path of new Gio.Settings({schema_id: MEDIA_KEYS}).get_strv('custom-keybindings')) {
+            const entry = new Gio.Settings({settings_schema: custom, path});
+            if (normal(entry.get_string('binding')) === wanted)
+                return entry.get_string('name') || 'a custom shortcut';
+        }
+    }
+    return null;
+}
+
+// A key as the preferences show it: GTK's name for it, or ours for a remote's
+// keys, which GTK shows as numbers.
+function keyLabel(keyval, mods) {
+    const named = REMOTE_KEYS[keyval];
+    if (!named)
+        return Gtk.accelerator_get_label(keyval, mods);
+    // The modifiers' half of the label, off a key GTK does know.
+    return mods ? Gtk.accelerator_get_label(Gdk.KEY_a, mods).slice(0, -1) + named : named;
+}
+
+// libmanette, if it is installed; loaded once, when first wanted.
+let manette = null;
+function loadManette() {
+    manette ??= import('gi://Manette').then(module => module.default, () => null);
+    return manette;
+}
+
 function sourceId(entry) {
     return entry.split('@')[0];
 }

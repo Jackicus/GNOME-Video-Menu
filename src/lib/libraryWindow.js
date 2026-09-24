@@ -115,6 +115,16 @@ class MediaLibrariesLibraryPanel extends MediaPanel {
         view.goToPage(0, false);
     }
 
+    // The section's grid that is on show.
+    get currentView() {
+        return [...this._views.values()].find(view => view.visible) ?? null;
+    }
+
+    // Arrows with nothing inside focused go to the grid's first tile on show.
+    _focusFirst() {
+        return this.currentView?.focusFirst() ?? false;
+    }
+
     // What the grid is allocated: the panel less the folder's own padding,
     // less the header. Both are asked of the widgets themselves — the padding
     // of the theme node (valid only once the panel is on stage), the header
@@ -146,7 +156,7 @@ export class LibraryWindow {
         this._rows = rows;
         this._buttons = new SectionButtons({
             sections: this._sections,
-            onActivate: key => this._toggle(key),
+            onActivate: key => this.toggle(key),
         });
         this._panel = null;
         this._current = null;
@@ -164,9 +174,9 @@ export class LibraryWindow {
         this._current = null;
     }
 
-    // A section's button: its library, or — when that is what is up — the way
+    // A section's button, or its shortcut: its library, or — when that is what is up — the way
     // out, as a second press of a folder's icon closes the folder.
-    _toggle(key) {
+    toggle(key) {
         if (this._panel?.isOpen && this._current === key) {
             this.close();
             return;
@@ -199,8 +209,11 @@ export class LibraryWindow {
 
         if (!this._panel.isOpen) {
             // The zoom comes out of the button's icon, which is a BaseIcon and
-            // so is its own artwork.
-            this._panel.popup(source ?? this._buttons.buttonFor(key)?.icon ?? null);
+            // so is its own artwork. A shortcut pressed on the desktop finds
+            // it unmapped, the dash being the overview's, and an unmapped
+            // icon has nowhere to zoom out of: the panel fades in centred.
+            const button = this._buttons.buttonFor(key)?.icon;
+            this._panel.popup(source ?? (button?.mapped ? button : null));
             if (!this._panel.isOpen)
                 return;
         }
@@ -212,6 +225,14 @@ export class LibraryWindow {
 
     close() {
         this._panel?.popdown();
+    }
+
+    get isShowing() {
+        return !!this._panel?.isOpen;
+    }
+
+    get currentView() {
+        return this._panel?.isOpen ? this._panel.currentView : null;
     }
 
     // What is up, for a rebuild to put back (see MediaMenu.state).

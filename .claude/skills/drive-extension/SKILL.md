@@ -45,7 +45,7 @@ walkthrough is **one** tool call, and it stops at the first failing step:
 |---|---|
 | `say TEXT` | Banner in the nested shell (≤ ~40 chars). Put one before every click or check. |
 | `click X Y` / `move X Y` | Click / hover at desktop coordinates |
-| `key KEYSYM` | `Escape`, `Return`, arrows, one character, or a chord like `Super+Page_Down` |
+| `key KEYSYM` | `Escape`, `Return`, arrows, `F1`–`F12`, a remote's `XF86OK`/`XF86Back`/`XF86HomePage`/`XF86ChannelUp`…, one character, or a chord like `Super+Page_Down` |
 | `wait SECS` | Let an animation land: ~1 s after anything that changes workspace (a launcher, the Home pill), ~0.6 s after opening or closing an item |
 | `shot [FILE [X Y W H]]` | Screenshot, or **just a region** — crop to what you are checking (a header strip, one tile) rather than reading 1600×900 every time |
 | `overview on\|off` | Show/hide the overview. While on, shots and clicks act on it (for `overviewPreview.js`); nothing dismisses it until `off`. |
@@ -178,3 +178,26 @@ reads as "no change". `logs` hides D-Bus activation and portal chatter; `logs 20
   `start --headless` and screenshots, and tell the user.
 - **Driving the prefs window:** `./scripts/nested.sh run gnome-extensions prefs media-libraries@jackt &`
   opens it inside the nested session, where `shot` and the mirror both show it.
+  The Extensions app outlives its window and keeps the `prefs.js` it first
+  imported, so after editing it kill *the nested one* before reopening — the
+  process whose environment has `WAYLAND_DISPLAY=media-libraries-dev`, never a
+  bare `pkill -f`, which also matches the real session's and your own shell.
+- **With the library on the surface, windows on its workspace get no keys.**
+  The surface's focus watcher takes the keyboard back from them, so anything
+  typed into a window there (the prefs included) goes nowhere. Test keyboard
+  input into a window with `library-opens-in` `menu` or `modal`.
+- **A game controller is `scripts/vpad.py`**, a virtual Xbox 360 pad on
+  uinput driven through a FIFO (`tap A`, `hat down`, `stick right 1.0`). It
+  is a real device for the whole machine while it runs; `quit` it when done.
+  Controller input is acted on only while a library is up and no window has
+  the focus, so drive it with the prefs window closed.
+- **Watched marks are real data.** Ticking an episode in the nested shell (a
+  click on the disc, Mark watched from a key or the pad) writes the real
+  `~/.local/share/media-libraries/watched.json` and, with `tracking` =
+  `source`, a `.media-libraries-watched.json` into the library folder itself.
+  Don't, or put both back afterwards.
+- **The shell's "Allow inhibiting shortcuts" prompt writes the real permission
+  store**, which the nested session shares. If a test has to answer it, delete
+  the entry afterwards (`PermissionStore.DeletePermission gnome
+  shortcuts-inhibitor org.gnome.Shell.Extensions.desktop`) so the real
+  session still asks.
