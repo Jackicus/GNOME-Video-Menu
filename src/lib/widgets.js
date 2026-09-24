@@ -182,14 +182,20 @@ export function createActionButton({label, icon, styleClass = 'button default ml
     const content = new St.BoxLayout({style_class: 'ml-action-content', y_align: Clutter.ActorAlign.CENTER});
     if (icon)
         content.add_child(new St.Icon({icon_name: icon, icon_size: 16, y_align: Clutter.ActorAlign.CENTER}));
-    content.add_child(new St.Label({text: label, y_align: Clutter.ActorAlign.CENTER}));
-    return new St.Button({
+    const text = new St.Label({text: label, y_align: Clutter.ActorAlign.CENTER});
+    content.add_child(text);
+    const button = new St.Button({
         style_class: styleClass,
         reactive: true,
         can_focus: true,
         track_hover: true,
         child: content,
     });
+    // For a button whose words move on while it is up (Continue).
+    button.setLabel = value => {
+        text.text = value;
+    };
+    return button;
 }
 
 // The way back to the home menu, in the section header.
@@ -297,7 +303,11 @@ export function createPill(text, styleClass, style = null) {
 // One entry in a detail list: numbered circle, title/subtitle, badges, size and
 // a play glyph. Hover is a single background change on the row itself — nothing
 // inside it restyles, so one pointer crossing is one repaint rather than four.
-export function createRow({index, title, subtitle, badges = [], size, icon = 'media-playback-start-symbolic', onActivate}) {
+// `watched` is null for a row with nothing to track; true or false makes the
+// disc a toggle of its own, showing a tick once watched, and `onWatched` is
+// told each time it is flipped. Such a row also has `setWatched(watched)`,
+// for a mark made somewhere else — by playing the file — to show on it.
+export function createRow({index, title, subtitle, badges = [], size, icon = 'media-playback-start-symbolic', onActivate, watched = null, onWatched}) {
     const row = new St.Button({
         // The theme's flat button: hover, focus and pressed come with it, and
         // the inline radius below overrides the one it brings.
@@ -312,15 +322,49 @@ export function createRow({index, title, subtitle, badges = [], size, icon = 'me
 
     // A disc with the number centred in it. A label given the disc's size
     // in CSS draws its text at the top, so the disc is a bin around it.
-    content.add_child(new St.Bin({
-        style_class: 'ml-row-index',
+    const number = new St.Label({
+        text: String(index),
+        x_align: Clutter.ActorAlign.CENTER,
         y_align: Clutter.ActorAlign.CENTER,
-        child: new St.Label({
-            text: String(index),
-            x_align: Clutter.ActorAlign.CENTER,
+    });
+    if (watched === null) {
+        content.add_child(new St.Bin({
+            style_class: 'ml-row-index',
             y_align: Clutter.ActorAlign.CENTER,
-        }),
-    }));
+            child: number,
+        }));
+    } else {
+        // A button inside the row's button: the press is the disc's alone,
+        // so ticking an episode off does not also play it.
+        const tick = new St.Icon({icon_name: 'object-select-symbolic', icon_size: 16});
+        const face = new St.Widget({layout_manager: new Clutter.BinLayout()});
+        face.add_child(number);
+        face.add_child(tick);
+        const disc = new St.Button({
+            style_class: 'ml-row-index ml-row-watch',
+            y_align: Clutter.ActorAlign.CENTER,
+            toggle_mode: true,
+            checked: watched,
+            reactive: true,
+            track_hover: true,
+            accessible_name: 'Watched',
+            child: face,
+        });
+        const sync = () => {
+            number.visible = !disc.checked;
+            tick.visible = disc.checked;
+        };
+        sync();
+        disc.connect('clicked', () => {
+            sync();
+            onWatched?.(disc.checked);
+        });
+        row.setWatched = value => {
+            disc.checked = value;
+            sync();
+        };
+        content.add_child(disc);
+    }
 
     const titleLabel = createLabel(title, 'ml-row-title', {x_expand: true, y_align: Clutter.ActorAlign.CENTER});
     if (subtitle) {

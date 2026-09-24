@@ -10,6 +10,7 @@ import {Duration, Ease, slideSwap, staggerIn} from './anim.js';
 import {fillOnScroll} from './lazyList.js';
 import {artworkStyle, createArtwork, createActionButton, createLabel, createPill, createRow, createThumb} from './widgets.js';
 import {PANE_INSET, radiusStyle} from './shape.js';
+import {Tracker} from './tracking.js';
 import {adjustAnimationTime, ensureActorVisibleInScrollView} from 'resource:///org/gnome/shell/misc/animationUtils.js';
 
 // What the pane keeps around its content, per frame, and the gap between its
@@ -53,14 +54,22 @@ export class DetailView {
     // `frame` is what the pane draws around itself: its own rounded, bordered
     // surface ('pane'), or nothing ('bare') when what holds it is the surface —
     // the shell's folder panel, in the popup.
-    constructor({onOpen, frame = 'pane'}) {
+    constructor({onOpen, tracker = null, frame = 'pane'}) {
         this._onOpen = onOpen;
+        this._tracker = tracker;
         this._section = null;
         this._frame = frame;
         this._groups = [];
         this._groupIndex = 0;
         this._list = null;
         this._listHost = null;
+        // The rows of the list showing, by path, for a mark made elsewhere.
+        this._watchRows = new Map();
+        // The primary button, what it plays now, and every path of the item
+        // shown whose mark or position could move it on.
+        this._play = null;
+        this._playPath = null;
+        this._playable = new Set();
         this._tabButtons = [];
         this._width = 0;
         this._height = 0;
@@ -79,6 +88,12 @@ export class DetailView {
             x_expand: true,
             y_expand: true,
         });
+        // Playing a file marks it: the row for it may be right there.
+        tracker?.connectObject('changed', (_tracker, path, watched) => {
+            this._watchRows.get(path)?.setWatched(watched);
+            if (this._play && this._playable.has(path))
+                this._syncPlay();
+        }, this.actor);
     }
 
     destroy() {
@@ -136,6 +151,33 @@ export class DetailView {
         return {width: Math.round(height / aspect), height};
     }
 
+    // The primary button carries on from where the tracker says this was
+    // left — the episode partway through, or the one after the last watched
+    // — and says so; with nothing touched, or all of it watched, it plays
+    // what the scan put there. A film has the one file to carry on with.
+    _syncPlay() {
+        const item = this.item;
+        this._playPath = item.playPath;
+        this._playable = new Set();
+        let label = item.playLabel;
+        if (this._tracker?.enabled && Tracker.tracks(this._section)) {
+            const groups = this._groups;
+            const inRun = groups.filter(g => g.season).flatMap(g => g.entries);
+            const order = inRun.length ? inRun.map(e => e.path) : [item.playPath];
+            const others = inRun.length
+                ? groups.filter(g => !g.season).flatMap(g => g.entries).map(e => e.path)
+                : [];
+            this._playable = new Set([...order, ...others]);
+            const path = this._tracker.continueFrom(order, others);
+            if (path && (path !== item.playPath || this._tracker.positionOf(path))) {
+                const code = groups.flatMap(g => g.entries).find(e => e.path === path)?.code;
+                this._playPath = path;
+                label = code ? `Continue ${code}` : 'Continue';
+            }
+        }
+        this._play.setLabel(label);
+    }
+
     // Everything the pane opens goes out with the section it was shown for,
     // since what a file opens with is that section's setting.
     _open(path) {
@@ -155,6 +197,10 @@ export class DetailView {
         this._groupIndex = 0;
         this._list = null;
         this._listHost = null;
+        this._watchRows = new Map();
+        this._play = null;
+        this._playPath = null;
+        this._playable = new Set();
         this._main = null;
         this._tabButtons = [];
 
@@ -277,8 +323,10 @@ export class DetailView {
                 icon: opensFolder ? 'folder-open-symbolic' : 'media-playback-start-symbolic',
             });
             play.set_x_expand(true);
-            play.connect('clicked', () => this._open(item.playPath));
+            play.connect('clicked', () => this._open(this._playPath ?? item.playPath));
             side.add_child(play);
+            this._play = play;
+            this._syncPlay();
         }
 
         if (item.folder && item.playPath !== item.folder) {
@@ -399,6 +447,9 @@ export class DetailView {
         scroll.set_child(box);
 
         const entries = group.entries;
+        // An episode or a film's file can be ticked off as watched.
+        const tracker = this._tracker?.enabled && Tracker.tracks(this._section) ? this._tracker : null;
+        const watchRows = this._watchRows = new Map();
         let next = 0;
         let first = true;
         fillOnScroll(scroll, () => {
@@ -414,7 +465,11 @@ export class DetailView {
                     size: entry.size,
                     icon: entry.icon ?? 'media-playback-start-symbolic',
                     onActivate: () => this._open(entry.path),
+                    watched: tracker && entry.path ? tracker.isWatched(entry.path) : null,
+                    onWatched: watched => tracker.setWatched(entry.path, watched),
                 });
+                if (tracker && entry.path)
+                    watchRows.set(entry.path, row);
                 // Keyboard focus has to drag the view after it, or a Tab past
                 // the fold never scrolls and so never tops the list up.
                 row.connect('key-focus-in', () => ensureActorVisibleInScrollView(scroll, row));

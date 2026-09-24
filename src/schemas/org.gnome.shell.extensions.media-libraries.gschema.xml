@@ -35,9 +35,9 @@
             <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
         </key>
         <key name="tv-shows-open-command" type="s">
-            <default>""</default>
+            <default>"vlc --fullscreen --play-and-exit --qt-continue=0"</default>
             <summary>TV show player command</summary>
-            <description>Command this section's files open with, for example "vlc" or "mpv --fullscreen". The file's path is appended. Empty uses the system default application.</description>
+            <description>Command this section's files open with; the file's path is appended. The default plays in VLC full screen and closes it when the file ends, with VLC's own "continue playback" off, since resume-playback does that. Empty uses the system default application, and so does a command that is not installed.</description>
         </key>
 
         <key name="films-enabled" type="b">
@@ -66,9 +66,9 @@
             <description>Off leaves this section with whatever is already cached. Every section has its own; there is no longer a global switch.</description>
         </key>
         <key name="films-open-command" type="s">
-            <default>""</default>
+            <default>"vlc --fullscreen --play-and-exit --qt-continue=0"</default>
             <summary>Film player command</summary>
-            <description>Command this section's files open with, for example "vlc" or "mpv --fullscreen". The file's path is appended. Empty uses the system default application.</description>
+            <description>Command this section's files open with; the file's path is appended. The default plays in VLC full screen and closes it when the file ends, with VLC's own "continue playback" off, since resume-playback does that. Empty uses the system default application, and so does a command that is not installed.</description>
         </key>
 
         <key name="music-enabled" type="b">
@@ -240,6 +240,42 @@
             <default>100</default>
             <summary>Detail pop-up size</summary>
             <description>How much of the room available the pop-up detail panel fills, as a percentage. Used when items open in a pop-up (detail-opens-in "menu" or "modal").</description>
+        </key>
+
+        <key name="play-on-new-workspace" type="b">
+            <default>true</default>
+            <summary>Play on a new workspace</summary>
+            <description>When on, playing something — an episode, a film, a track, a photo, a game — first moves to an empty workspace, so the player's window opens there and the one it was picked on is left as it was. Folders ("Show in Files") open where you are either way.</description>
+        </key>
+
+        <!-- What has been watched: lib/tracking.js. -->
+        <key name="tracking" type="s">
+            <choices>
+                <choice value="source"/>
+                <choice value="local"/>
+                <choice value="none"/>
+            </choices>
+            <default>"source"</default>
+            <summary>Where watched marks are kept</summary>
+            <description>"local" keeps every mark in ~/.local/share/media-libraries/watched.json. "source" keeps that file and also copies each library folder's marks into a .media-libraries-watched.json at the top of that folder, so another machine reading the same folder sees them; switching back to "local" removes those copies. "none" turns tracking off and leaves both files as they are.</description>
+        </key>
+        <!-- Playing is watched through MPRIS: lib/playback.js. -->
+        <key name="watched-threshold" type="i">
+            <range min="50" max="100"/>
+            <default>90</default>
+            <summary>Watched after</summary>
+            <description>How far through an episode or film, as a percentage of its length, playback has to get before it is marked watched. Read from any player that speaks MPRIS (VLC, mpv with mpv-mpris, Showtime, Celluloid), however the file was opened.</description>
+        </key>
+        <key name="resume-playback" type="b">
+            <default>true</default>
+            <summary>Continue where you left off</summary>
+            <description>When on, where playback stopped is kept with the watched marks, and playing the file from the library again picks up from there, less resume-rewind. Something marked watched starts from the beginning.</description>
+        </key>
+        <key name="resume-rewind" type="i">
+            <range min="0" max="60"/>
+            <default>20</default>
+            <summary>Rewind on resume</summary>
+            <description>How many seconds before where it stopped playback picks up again, so the moment it was left at is seen again.</description>
         </key>
 
         <!-- The one player command earlier releases kept for videos. The

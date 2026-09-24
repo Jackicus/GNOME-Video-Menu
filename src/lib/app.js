@@ -45,6 +45,8 @@ import {OverviewPreview} from './overviewPreview.js';
 import {MediaMenu} from './mediaMenu.js';
 import {LibraryWindow} from './libraryWindow.js';
 import {DetailDialog} from './detailDialog.js';
+import {Tracker} from './tracking.js';
+import {PlaybackWatcher} from './playback.js';
 
 // Gap between the surface and the work-area edges, in logical px.
 const OUTER_MARGIN = 28;
@@ -63,14 +65,21 @@ const NAVIGATION_KEYS = [
     Clutter.KEY_Up, Clutter.KEY_Down, Clutter.KEY_Left, Clutter.KEY_Right,
 ];
 
-// Open a file with the command its section names, or the system default app.
+// Open a file with the command its section names, or the system default app —
+// which is also what a command whose program is not installed gets, since the
+// video sections name VLC by default and not every machine has it.
 // An array is a command line to run as-is (a game launcher, an emulator). The
 // shell's own spawn helper says so in a notification when a launch fails, and
 // so does this for the launches it does itself.
-function openPath(path, command = '') {
+//
+// `beforeLaunch` runs just before a file that is there is launched — not a
+// folder, and not a path that has gone — which is only known once the file
+// has been asked what it is.
+function openPath(path, command = '', beforeLaunch = null) {
     if (!path)
         return;
     if (Array.isArray(path)) {
+        beforeLaunch?.();
         Util.spawn(path);
         return;
     }
@@ -82,11 +91,15 @@ function openPath(path, command = '') {
         'standard::type', Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null,
         (_file, result) => {
             let isDir = false;
+            let found = false;
             try {
                 isDir = file.query_info_finish(result).get_file_type() === Gio.FileType.DIRECTORY;
+                found = true;
             } catch (e) {
                 // Not there: let the launch below say so.
             }
+            if (found && !isDir)
+                beforeLaunch?.();
             if (command && !isDir) {
                 // Only the parse can throw here; the spawn reports itself.
                 let argv;
@@ -96,8 +109,10 @@ function openPath(path, command = '') {
                     Main.notifyError(`Could not open ${file.get_basename()}`, e.message);
                     return;
                 }
-                Util.spawn([...argv, path]);
-                return;
+                if (GLib.find_program_in_path(argv[0])) {
+                    Util.spawn([...argv, path]);
+                    return;
+                }
             }
             Gio.AppInfo.launch_default_for_uri_async(file.get_uri(),
                 global.create_app_launch_context(0, -1), null, (_source, res) => {
@@ -178,6 +193,10 @@ export class MediaLibrariesApp {
         // And the one the pane was given, when a pick opens in 'workspaces'.
         // There is one pane and one pick, so there is only ever one.
         this._detailWorkspace = null;
+        // What has been watched, read by the detail pane's rows.
+        this._tracker = new Tracker(this._settings);
+        // Which marks them, and resumes what was left halfway.
+        this._playback = new PlaybackWatcher(this._settings, this._tracker);
     }
 
     // ------------------------------------------------------------------
@@ -185,6 +204,8 @@ export class MediaLibrariesApp {
     // ------------------------------------------------------------------
     enable() {
         migrateOpenCommand(this._settings);
+        this._tracker.enable();
+        this._playback.enable();
         this._sections = loadLibrary();
         this._applyWorkspaceMode();
         this._build();
@@ -240,8 +261,12 @@ export class MediaLibrariesApp {
                 if (event === Gio.FileMonitorEvent.CHANGES_DONE_HINT ||
                     event === Gio.FileMonitorEvent.CREATED ||
                     event === Gio.FileMonitorEvent.RENAMED ||
-                    event === Gio.FileMonitorEvent.MOVED_IN)
+                    event === Gio.FileMonitorEvent.MOVED_IN) {
                     this._scheduleRebuild({reload: true, delay: 400});
+                    // A rescan is a good moment to look for another
+                    // machine's marks in the folders.
+                    this._tracker.sync();
+                }
             });
         } catch (e) {
             console.warn(`[Media Libraries] Could not watch library.json: ${e}`);
@@ -273,6 +298,9 @@ export class MediaLibrariesApp {
         this._picked = this._origin = null;
         this._keepOnly(new Set());
         this._sections = {};
+        // Where a file playing now got to goes down before the tracker stops.
+        this._playback.disable();
+        this._tracker.disable();
     }
 
     _teardown() {
@@ -845,9 +873,36 @@ export class MediaLibrariesApp {
     // What a section's files open with is that section's own setting; a
     // folder, and anything of a section with no such setting, goes to the
     // system default.
+    //
+    // An episode or a film picks up where it was left, once the player has
+    // it; the watcher marks it watched when playback gets far enough.
     _open(path, section) {
         const key = section ? openCommandKey(section) : null;
-        openPath(path, key ? this._settings.get_string(key) : '');
+        openPath(path, key ? this._settings.get_string(key) : '', () => {
+            if (Tracker.tracks(section))
+                this._playback.resumeNext(path);
+            this._toPlayingWorkspace();
+        });
+    }
+
+    // Something is being played: with `play-on-new-workspace`, onto an empty
+    // workspace first, so the player's window maps there — a new window
+    // opens on the active workspace — and what it was picked from stays as
+    // it was. What was up to pick it goes, or it would be over the player.
+    // The workspace is not held: the player's window is what keeps it, and
+    // when that closes the shell folds it away as it would any other.
+    _toPlayingWorkspace() {
+        if (!this._settings.get_boolean('play-on-new-workspace'))
+            return;
+        const workspace = this._claimWorkspace();
+        if (!workspace) {
+            console.warn('[Media Libraries] No empty workspace to play on (Settings → Multitasking).');
+            return;
+        }
+        this._dialog?.popdown();
+        this._browser?.close();
+        Main.overview.hide();
+        workspace.activate(global.get_current_time());
     }
 
     // ------------------------------------------------------------------
@@ -868,6 +923,7 @@ export class MediaLibrariesApp {
         if (this._detailPopsUp()) {
             this._dialog = new DetailDialog({
                 onOpen: (path, section) => this._open(path, section),
+                tracker: this._tracker,
                 size: this._settings.get_int('detail-size') / 100,
                 mode: this._detailMode(),
             });
@@ -929,7 +985,10 @@ export class MediaLibrariesApp {
 
         const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
         if (this._detailOnSurface()) {
-            this._detail = new DetailView({onOpen: (path, section) => this._open(path, section)});
+            this._detail = new DetailView({
+                onOpen: (path, section) => this._open(path, section),
+                tracker: this._tracker,
+            });
             this._detail.setSize(bounds.width, bounds.height - HEADER_ALLOWANCE * scale);
             this._detail.actor.hide();
         }

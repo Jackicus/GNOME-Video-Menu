@@ -35,7 +35,7 @@ import {PANE_INSET} from './shape.js';
 
 export const DetailDialog = GObject.registerClass(
 class MediaLibrariesDetailDialog extends MediaPanel {
-    _init({onOpen, size = 1, mode = 'menu'}) {
+    _init({onOpen, tracker, size = 1, mode = 'menu'}) {
         super._init({
             size,
             // In "modal" the panel outlives the overview that may have been
@@ -63,7 +63,7 @@ class MediaLibrariesDetailDialog extends MediaPanel {
         this._panel.add_child(this._clip);
 
         // The folder's panel is the surface here, so the pane draws none.
-        this._detail = new DetailView({onOpen, frame: 'bare'});
+        this._detail = new DetailView({onOpen, tracker, frame: 'bare'});
         this._detail.actor.set_position(0, 0);
         this._clip.add_child(this._detail.actor);
 

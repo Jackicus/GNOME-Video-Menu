@@ -124,6 +124,50 @@ as missing.
    when a rescan lands. All of this is built only when `library-opens-in` or
    `detail-opens-in` is a surface place — see below.
 
+**Watched marks** (`lib/tracking.js`, setting `tracking`) are two files of one
+format: `~/.local/share/media-libraries/watched.json`, every mark made on this
+machine keyed by absolute path, and `<folder>/.media-libraries-watched.json`
+at the top of each TV/film folder in `<prefix>-folders`, that folder's marks
+keyed by the path inside it so another machine mounting it elsewhere reads
+them. `local` uses the first alone; `source` also folds each folder's file
+into it (later `at` wins; an unmark is kept as `watched: false` so it beats an
+older mark) and writes each folder its share back — on enable, on a folder
+change, when a rescan lands and on every tick; `none` touches neither. The
+local file is never trimmed, so marks outlive a folder leaving the list;
+`source` → `local` deletes the folder files and going back rewrites them. A
+folder file is only ever written after it has been read, so another machine's
+marks are never overwritten unseen. The toggle is the index disc of a row in
+the detail list (`widgets.js` `createRow` `watched`), for sections with
+`watched: true` in `SECTIONS`. The tracker emits `changed` for every flip,
+which is how a row already built shows a mark it did not make. The scanner skips dot-files, and the file sits
+beside the item folders rather than in one, so no `scan_sig` moves with it.
+
+**Playback is followed, not driven** (`lib/playback.js`). The watcher listens
+on the session bus for MPRIS players — VLC, or anything else in the shell's
+media controls — and follows whichever has a file under a watched folder open,
+however it was opened. Past `watched-threshold` percent of its length the
+file is marked; where it stopped short of that is kept in the same entry as
+`position` (and so travels in the folder file too), and a Play from the
+library seeks there less `resume-rewind` once the player has the file
+(`resumeNext`, SetPosition over MPRIS, so any player that can seek will do —
+which is why the default VLC command turns VLC's own `--qt-continue` off).
+MPRIS never announces the position and a closed player cannot be asked it,
+so the watcher keeps the last reading and the monotonic time it was taken,
+and reckons forward from that while playing: the 30 s poll only corrects
+drift and catches the threshold, and a pause, seek, file change, the player
+going, or a disable (the screen locking) each settle the position
+themselves. Nothing is written while a file plays; the tracker writes when
+one of those happens. The player controls themselves are meant to be a
+separate extension, not this one.
+
+The detail pane's primary button is a **Continue** button for these
+sections (`detailView.js` `_syncPlay`, `Tracker.continueFrom`): the file
+touched last if it was left partway or unticked, else the first unwatched
+episode after it in the numbered seasons (Extras are not part of the run).
+With nothing touched, or everything after it watched, it falls back to the
+scan's own `playLabel` — "Play S01E01". It follows `changed`, which a kept
+position emits too, so it moves on while the pane is up.
+
 Navigation is three levels: the **home menu**, a section's **library** (a grid)
 and the **detail** pane (artwork, facts,
 synopsis, then seasons/tracks/files as tabbed lists, or a thumbnail grid for photo

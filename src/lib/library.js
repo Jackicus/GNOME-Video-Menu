@@ -19,6 +19,7 @@ export const SECTIONS = [
         title: 'TV Shows',
         icon: 'tv-symbolic',
         aspect: 1.5,
+        watched: true,
         emptyHint: 'Add a folder with one subfolder per show in Settings.',
     },
     {
@@ -27,6 +28,7 @@ export const SECTIONS = [
         title: 'Films',
         icon: 'video-x-generic-symbolic',
         aspect: 1.5,
+        watched: true,
         emptyHint: 'Add a folder with one subfolder or file per film in Settings.',
     },
     {
@@ -73,8 +75,10 @@ export function migrateOpenCommand(settings) {
     const legacy = settings.get_string('player-command');
     if (!legacy)
         return;
+    // Not set by the user, rather than empty: the video commands have a
+    // default of their own, and an empty one is a choice.
     for (const key of ['tv-shows-open-command', 'films-open-command']) {
-        if (!settings.get_string(key))
+        if (settings.get_user_value(key) === null)
             settings.set_string(key, legacy);
     }
     settings.set_string('player-command', '');
@@ -260,6 +264,9 @@ function normalizeShow(show, base) {
 
     const groups = names.map(name => ({
         name,
+        // A numbered season is part of the run the Continue button walks;
+        // Extras and the like are not.
+        season: seasonNumberOf(name) !== null,
         entries: bySeason.get(name).map((ep, i) => {
             const tag = (ep.filename || '').match(EPISODE_TAG);
             return {

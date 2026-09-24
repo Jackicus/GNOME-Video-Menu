@@ -86,14 +86,14 @@ const PAGES = {
         layout: 'One folder per show. Seasons can be subfolders ("Season 2") or SxxEyy in the file names.',
         online: 'Where artwork, synopsis, genres and ratings come from.',
         sources: ['tvmaze', 'tmdb', 'wikipedia'],
-        opener: {title: 'Video player command', hint: 'For example "vlc" or "mpv --fullscreen".'},
+        opener: {title: 'Video player command', hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.'},
     },
     films: {
         lower: 'films', noun: 'films', xdg: null,
         layout: 'One folder or file per film, named "Title (Year)". The largest video in a folder is the feature.',
         online: 'Where posters, synopses, genres and ratings come from.',
         sources: ['tmdb', 'wikipedia'],
-        opener: {title: 'Video player command', hint: 'For example "vlc" or "mpv --fullscreen".'},
+        opener: {title: 'Video player command', hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.'},
     },
     music: {
         lower: 'music', noun: 'albums', xdg: GLib.UserDirectory.DIRECTORY_MUSIC,
@@ -262,6 +262,13 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         detailRow.add_suffix(details);
         view.add(detailRow);
 
+        const playRow = new Adw.SwitchRow({
+            title: 'Play on a new workspace',
+            subtitle: 'The player opens on an empty workspace of its own, leaving the one you picked from as it was',
+        });
+        settings.bind('play-on-new-workspace', playRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        view.add(playRow);
+
         const desktop = new Adw.PreferencesGroup({title: 'Desktop'});
         page.add(desktop);
 
@@ -408,6 +415,66 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         });
         appearance.add(accent);
 
+        // Where the watched marks go: lib/tracking.js.
+        const tracking = new Adw.PreferencesGroup({title: 'Watched'});
+        page.add(tracking);
+        const TRACKING = {
+            source: 'Every mark is kept on this computer, and each library folder also gets a copy of its own marks, so another computer using the same folder picks them up.',
+            local: 'Marks are kept on this computer only. Switching from Folders removes the copies from the folders; switching back puts them back.',
+            none: 'Nothing is marked as watched. What was marked before is kept, for when this is turned back on.',
+        };
+        const where = new Adw.ToggleGroup({valign: Gtk.Align.CENTER, homogeneous: true, can_shrink: false});
+        where.add(new Adw.Toggle({name: 'source', label: 'Folders'}));
+        where.add(new Adw.Toggle({name: 'local', label: 'Local'}));
+        where.add(new Adw.Toggle({name: 'none', label: 'Off'}));
+        const trackingRow = new Adw.ActionRow({title: 'Keep marks in'});
+        trackingRow.add_suffix(where);
+        tracking.add(trackingRow);
+        const syncTracking = () => {
+            const mode = settings.get_string('tracking');
+            if (where.active_name !== mode)
+                where.active_name = mode;
+            tracking.description = TRACKING[mode];
+        };
+        where.connect('notify::active-name', () => {
+            if (where.active_name && where.active_name !== settings.get_string('tracking'))
+                settings.set_string('tracking', where.active_name);
+        });
+        settings.connect('changed::tracking', syncTracking);
+        syncTracking();
+
+        // Playback is followed over MPRIS: lib/playback.js.
+        const thresholdRow = new Adw.ActionRow({
+            title: 'Watched after',
+            subtitle: 'How far through an episode or film playback has to get, as a percentage. Works with any player that shows up in the media controls, VLC included.',
+        });
+        thresholdRow.add_suffix(slider('watched-threshold', 50, 100));
+        tracking.add(thresholdRow);
+
+        const resumeRow = new Adw.SwitchRow({
+            title: 'Continue where you left off',
+            subtitle: 'Playing something again from the library picks up where it stopped. Something marked watched starts from the beginning.',
+        });
+        settings.bind('resume-playback', resumeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        tracking.add(resumeRow);
+
+        const rewindRow = new Adw.ActionRow({
+            title: 'Rewind on resume',
+            subtitle: 'Seconds before where it stopped, so the moment it was left at is seen again',
+        });
+        rewindRow.add_suffix(slider('resume-rewind', 0, 60));
+        settings.bind('resume-playback', rewindRow, 'sensitive', Gio.SettingsBindFlags.GET);
+        tracking.add(rewindRow);
+
+        // With tracking off there is nothing for either to write to.
+        const syncPlayback = () => {
+            const on = settings.get_string('tracking') !== 'none';
+            thresholdRow.sensitive = on;
+            resumeRow.sensitive = on;
+        };
+        settings.connect('changed::tracking', syncPlayback);
+        syncPlayback();
+
         // Sources, keys, the online switch and what files open with are each
         // section's own; all that is left here is the one button that runs the lot.
         const library = new Adw.PreferencesGroup({
@@ -499,7 +566,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         group.add(command);
         group.add(new Adw.ActionRow({
             title: 'Leave empty for the system default',
-            subtitle: `${section.opener.hint} The file's path is added to the end.`,
+            subtitle: `${section.opener.hint} The file's path is added to the end. A program that is not installed falls back to the system default.`,
             sensitive: false,
         }));
         return group;
