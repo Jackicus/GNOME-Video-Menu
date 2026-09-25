@@ -368,7 +368,9 @@ export class DetailView {
             main.add_child(summary);
         }
 
-        if (this._groups.length > 1)
+        // A season is a tab even when it is the only one, so a one-season
+        // show reads like the rest; a film's lone group of files is a heading.
+        if (this._groups.length > 1 || this._groups[0]?.season)
             main.add_child(this._buildTabs());
         else if (this._groups.length === 1)
             main.add_child(new St.Label({text: this._groups[0].name, style_class: 'ml-group-heading'}));
