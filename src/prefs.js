@@ -819,8 +819,10 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         const files = new Adw.PreferencesGroup({title: 'Files', description: section.layout});
         page.add(files);
 
+        // A section switched off is a tab the library does not have.
         const enabled = new Adw.SwitchRow({
-            title: `Show ${section.lower} on the desktop`,
+            title: `Show ${section.lower} in the library`,
+            subtitle: `The ${section.title} tab, wherever the library opens`,
         });
         settings.bind(`${section.prefix}-enabled`, enabled, 'active', Gio.SettingsBindFlags.DEFAULT);
         files.add(enabled);
