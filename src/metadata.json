@@ -1,6 +1,6 @@
 {
   "uuid": "media-libraries@jackt",
-  "name": "Media Libraries",
+  "name": "Video Menu",
   "description": "Your TV shows and films as a library on the desktop, in the overview, or in a floating panel.",
   "settings-schema": "org.gnome.shell.extensions.media-libraries",
   "shell-version": [ "48", "49", "50" ],

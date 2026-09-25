@@ -229,7 +229,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
 
         // Shown for whichever of the two is set to claim one.
         const workspaces = new Adw.ActionRow({
-            title: 'Workspaces Media Libraries is using stay open',
+            title: 'Workspaces Video Menu is using stay open',
             subtitle: 'A workspace opened for the library or for a picked item is held until you close it or go back from it, so GNOME does not fold it away. With a fixed number of workspaces, set enough in Settings → Multitasking.',
             sensitive: false,
         });

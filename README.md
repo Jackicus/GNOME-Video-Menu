@@ -1,4 +1,4 @@
-# Media Libraries
+# Video Menu
 
 Your own TV shows and films as a library in GNOME: posters, synopses, seasons
 and episodes, opened from one button beside Show Apps. It doesn't play

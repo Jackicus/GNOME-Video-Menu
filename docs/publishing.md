@@ -129,7 +129,7 @@ paths resolve the way `extension.js`'s `this.dir`-relative code expects.
 | Key | Now | Verdict |
 |---|---|---|
 | `uuid` | `media-libraries@jackt` | Valid characters, not under `gnome.org`. Cannot change after the first upload — see [the name](#the-extension-name-versus-the-repo-name) |
-| `name` | `Media Libraries` | See [the name](#the-extension-name-versus-the-repo-name) |
+| `name` | `Video Menu` | See [the name](#the-extension-name-versus-the-repo-name) |
 | `description` | one line | Should say considerably more — below |
 | `settings-schema` | set | Correct; `getSettings()` is called with no arguments in both `lib/app.js` and `prefs.js`, as Best Practices asks |
 | `shell-version` | `["48", "49", "50"]` | All released, so allowed by "MUST NOT claim future versions." Worth knowing: per the root `CLAUDE.md`, 48 and 49 are audited against the shell's sources, not actually booted — only 50 has been run. A reviewer's VM may be on 48 or 49 |
@@ -427,7 +427,7 @@ installed extension directory, per the "`src/` is an exact mirror" rule in
 
 ### Copyrights and trademarks: no issue found
 
-"Media Libraries" is not, as far as this review found, a name in current
+"Video Menu" is not, as far as this review found, a name in current
 commercial or trademarked use in this space (unlike this extension's sibling,
 Wallpaper Engine, which shares a name with a well-known Steam application).
 No copyrighted third-party content — icons, artwork, code — appears to be
@@ -435,21 +435,21 @@ bundled; the one shipped icon (`icons/library-symbolic.svg`) is original.
 
 ### The extension name versus the repo name
 
-The repository was just renamed to `GNOME-Video-Menu` (its GitHub
-remote is `github.com/Jackicus/GNOME-Video-Menu`), evidently to sit
-alongside its sibling `GNOME-Games-Menu`. Neither `metadata.json`
-(`name: "Media Libraries"`), the UUID (`media-libraries@jackt`) nor the
-README's own title (`# Media Libraries`) has followed that rename yet. This
-is not itself a guideline violation — EGO reviews the shipped `name` and
-`uuid`, not the repository's name — but it is worth resolving deliberately
-and *before* the first upload rather than after: the UUID becomes the EGO
-listing's permanent identity once published, and `dev.sh`'s own
-`LEGACY_UUIDS` array (`gnomeflix@jackt`, `media-workspace-desktop@jackt`)
-shows this extension has already been renamed more than once pre-release.
-Decide now whether the EGO listing should be "Media Libraries" (matching what
-ships today) or something in the "Video Menu" family (matching the repo and
-its sibling), and make the UUID agree with the name before uploading — after
-the first upload, both are fixed.
+The repository is `GNOME-Video-Menu` (its GitHub remote is
+`github.com/Jackicus/GNOME-Video-Menu`), to sit alongside its sibling
+`GNOME-Games-Menu`, and the shipped `name` and the README's title have
+followed it: both are "Video Menu". The UUID (`media-libraries@jackt`) has
+not, nor has the schema ID (`org.gnome.shell.extensions.media-libraries`)
+behind it. That is not itself a guideline violation — EGO reviews the shipped
+`name` and `uuid` for what they are, not for agreeing with each other — but it
+is worth resolving deliberately and *before* the first upload rather than
+after: the UUID becomes the EGO listing's permanent identity once published,
+and `dev.sh`'s own `LEGACY_UUIDS` array (`gnomeflix@jackt`,
+`media-workspace-desktop@jackt`) shows this extension has already been renamed
+more than once pre-release. Decide whether to keep `media-libraries@jackt`
+or move to something like `video-menu@jackt` (matching the name and the
+sibling's `games-menu@jackt`) before uploading — after the first upload it is
+fixed.
 
 ### Don't include unnecessary files: meets, unverified by tooling
 
@@ -476,10 +476,10 @@ is for, and what breaks if a future GNOME shell changes it, is covered in
 
 Most consequential first:
 
-1. **Decide the name.** "Media Libraries" or something in the "Video Menu"
-   family — set `metadata.json`'s `name` and `uuid` (and update the schema ID
-   and path, and the README) together, before the first upload. This cannot
-   be changed afterwards.
+1. **Decide the UUID.** The name is now "Video Menu"; the UUID is still
+   `media-libraries@jackt`. Keep it, or move the UUID, the schema ID and
+   path to match the name, before the first upload. This cannot be changed
+   afterwards.
 2. **Answer the dynamic-import question.** Either be ready to explain, in the
    upload notes, why `extension.js` stages `lib/` into
    `$XDG_RUNTIME_DIR` and imports it from there on every enable (the Wayland

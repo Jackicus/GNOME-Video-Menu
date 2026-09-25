@@ -159,7 +159,7 @@ def apply_settings(args, parser):
     """
     if _setting("library-opens-in") is None:
         parser.error(
-            "--from-settings could not read the Media Libraries settings. Compile the "
+            "--from-settings could not read the Video Menu settings. Compile the "
             f"schemas ({SCHEMA_DIR}) or pass the folders explicitly.")
 
     only = set(args.only or SECTION_SETTINGS)

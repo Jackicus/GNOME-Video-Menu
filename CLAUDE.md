@@ -1,10 +1,15 @@
-# Media Libraries
+# Video Menu
 
 A GNOME Shell extension (UUID `media-libraries@jackt`) that renders a video
 library — TV shows and films — directly onto the desktop wallpaper, in the
 overview beside the apps, or in a shell-native panel, depending on a setting.
 No window, no titlebar. Shell versions 48 to 50 (48 and 49 by audit against
 the shell's sources, not by boot — see the compat note in Gotchas).
+"Video Menu" is only the name it shows — `metadata.json`'s `name`, which is
+what the extension list and the preferences window read. Everything else
+still says `media-libraries` (the UUID, the schema, the cache folders, the
+`[Media Libraries]` log tag `make logs` filters on, and the `MediaLibraries*`
+class names), and the rest of this file calls it Media Libraries.
 
 A sibling extension, **Games Menu** (`games-menu@jackt`,
 `/home/jackt/Projects/GNOME-Extensions/GNOME-Games-Menu`), is the same idea for a
