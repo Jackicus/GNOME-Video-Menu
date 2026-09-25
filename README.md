@@ -1,67 +1,28 @@
 # Media Libraries
 
-**Your own TV shows and films, browsed like a streaming service — without one.**
-
-A GNOME Shell extension that turns the folders you already have into a proper
-video library: posters, backdrops, ratings, synopses, episode lists. It lives
-on the desktop wallpaper, in the overview beside your apps, or in a panel that
-pops out of a button — your choice, and you can change your mind at any time.
+Your own TV shows and films as a library in GNOME: posters, synopses, seasons
+and episodes, opened from one button beside Show Apps. It doesn't play
+anything itself. Pick an episode and it opens in VLC, mpv or whatever you use.
 
 ![The library in the overview: TV Shows and Films tabs over a grid of posters, opened from the television button in the dash](docs/screenshots/menu.jpg)
 
-**It does not play anything.** There is no player in here, no codecs, no
-transcoding, no server. It finds your media, dresses it up, and when you pick
-something it hands the file to whatever app already opens that kind of file —
-VLC, mpv, or whatever you've set. Think of it as a good-looking front door to
-a collection you already own, not another media player competing for the job.
+- **One button, two tabs.** TV Shows and Films, switched at the top. Turn a
+  section off and its tab goes.
+- **Finds the artwork.** Each title is looked up on TVmaze, TMDB and Wikipedia
+  for its poster, backdrop, rating and synopsis, and cached so browsing stays
+  instant.
+- **Remembers what you've watched.** Tick an episode, or just play it, and
+  Continue picks up where you left off.
+- **Looks like GNOME.** The grid is the shell's own app grid, in your accent
+  colour, with the same paging, swiping and keyboard.
+- **Remote or controller.** Map a TV remote's keys or a game controller's
+  buttons, and browse from the sofa.
+- **Four places to open.** In the overview, in a pop-up panel, or right on the
+  desktop.
 
-Looking for games? That's a separate extension,
-[Games Menu](https://github.com/Jackicus/Gnome-Extension-Games-Menu) — built
-the same way, and happy to run alongside this one.
+## Install
 
-## What it does
-
-- **TV Shows and Films.** One button beside Show Apps, and tabs between the
-  two — turn a section off in the preferences and its tab disappears.
-- **Finds the artwork for you.** Point it at a folder and it looks each title
-  up online — posters, backdrops, year, rating, tagline, runtime, genres, a
-  synopsis, the episode list. Everything is cached locally and pre-scaled, so
-  browsing stays instant.
-- **Tracks what you've watched, and picks up where you left off.** A tick on
-  an episode or film, or just playing it in VLC, marks it; the detail pane's
-  Continue button finds where you left off without you having to remember.
-- **Built out of GNOME, not on top of it.** The grid *is* the shell's app grid
-  — same paging, same swipe, same keyboard, same hover and focus rings. It
-  follows your accent colour, your font size and your theme, because it is
-  using the shell's own widgets rather than imitating them.
-- **Works with a remote or a controller**, not just a keyboard and mouse — see
-  the Controls page in the preferences.
-- **Nothing to leave running.** No daemon, no tray icon, no window. It draws
-  when you look at it and costs nothing when you don't.
-
-## What it is not
-
-- Not a player, a transcoder or a media server.
-- Not a file manager — it will show you a folder in Files, but it won't
-  rename, move or organise anything.
-- Not a downloader. It fetches artwork and descriptions, and only that.
-
----
-
-## Getting started
-
-### 1. Check you're on a supported GNOME
-
-GNOME Shell **48, 49 or 50**. Nothing else is needed — the scanner uses
-Python 3 and the image libraries GNOME already ships. (If you happen to have
-[Pillow](https://python-pillow.org/) installed it will use that instead;
-either way, it's optional.)
-
-```bash
-gnome-shell --version
-```
-
-### 2. Install it
+Needs GNOME Shell 48, 49 or 50, and Python 3 for the folder scanner.
 
 ```bash
 git clone https://github.com/Jackicus/Gnome-Extension-Video-Menu.git
@@ -69,53 +30,31 @@ cd Gnome-Extension-Video-Menu
 make install
 ```
 
-Then **log out and back in**. GNOME only notices a brand-new extension at
-login — there's no way around it on Wayland.
+Log out and back in. GNOME only picks up a new extension when you log in.
 
-### 3. Point it at your media
+Then open the preferences (`gnome-extensions prefs media-libraries@jackt`).
+On the **TV Shows** and **Films** pages, add your folders and press
+**Rescan**:
 
-Open the preferences:
+- **TV Shows:** one folder per show. Seasons can be subfolders (`Season 2`)
+  or `S02E05` in the file names.
+- **Films:** one folder or file per film, named `Title (Year)`.
 
-```bash
-gnome-extensions prefs media-libraries@jackt
-```
+TVmaze and Wikipedia work straight away. A free
+[TMDB key](https://www.themoviedb.org/settings/api) adds backdrops, ratings
+and taglines. It's stored in dconf in plain text, like any other setting.
 
-Each section has its own page, and each page tells you the folder layout it
-expects:
+## Where it opens
 
-- **TV Shows** — one folder per show. Seasons can be subfolders (`Season 2`)
-  or `SxxEyy` in the file names.
-- **Films** — one folder or file per film, named `Title (Year)`.
+The **General** page chooses where the library opens and where a picked item
+opens. The two settings are separate, so you can mix them.
 
-A section can have as many folders as you like — press **+** on its Files
-group to add another — and they're scanned in order into one list, so films
-kept on two drives sit side by side.
-
-Neither section has a default folder — your Videos folder can't be both — so
-both stay switched off until you give them one.
-
-### 4. Scan
-
-Press **Rescan** on a section's page, or **Rescan everything** on the General
-page. The first run takes a while — it's looking every title up online — and
-after that it only re-reads folders that have actually changed.
-
-That's it. Press the button beside Show Apps to open the library, wherever
-the view you picked below puts it.
-
----
-
-## Choosing how it looks
-
-Two settings on the **General** page decide where things happen, and they're
-read independently of each other:
-
-| | The library opens in | An item opens in |
+| | The library | A picked item |
 |---|---|---|
-| **Desktop** | Nothing is drawn until the button is pressed; then the library — tabs over a grid — appears on the wallpaper of the workspace you pressed it on | The item's details replace the grid, in place |
-| **Workspaces** | Same, but the button claims a workspace of its own and slides to it, giving it up again when you close the library | The details get a workspace of their own too |
-| **Menu** | The library sits in the overview next to your apps, opened from the button beside Show Apps | The details pop up the way an app folder does |
-| **Modal** | The library pops out of that button into a panel over the desktop | The details pop up over everything, until you dismiss them |
+| **Menu** | In the overview, beside your apps | Pops up the way an app folder does |
+| **Modal** | In a panel over the desktop | In a panel over everything |
+| **Desktop** | On the wallpaper of the workspace you're on | In place of the grid |
+| **Workspaces** | On a workspace of its own | On a workspace of its own |
 
 <table>
   <tr>
@@ -123,8 +62,8 @@ read independently of each other:
     <td width="50%"><img src="docs/screenshots/modal.jpg" alt="The library in a panel over the desktop, on the Films tab"></td>
   </tr>
   <tr>
-    <td valign="top"><b>Menu</b>: a pick pops up out of its poster.</td>
-    <td valign="top"><b>Modal</b>: the library in a panel over the desktop.</td>
+    <td valign="top"><b>Menu</b>: a picked show pops up out of its poster.</td>
+    <td valign="top"><b>Modal</b>: the library in a panel.</td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/desktop.jpg" alt="The library drawn on the desktop wallpaper, with Settings and Close at the top right"></td>
@@ -132,20 +71,9 @@ read independently of each other:
   </tr>
   <tr>
     <td valign="top"><b>Desktop</b>: the library on the wallpaper.</td>
-    <td valign="top"><b>Desktop</b>: a pick takes the grid's place.</td>
+    <td valign="top"><b>Desktop</b>: a picked film in place of the grid.</td>
   </tr>
 </table>
-
-Mix them however you like — a library in the overview with details popping up
-over the desktop is a perfectly good combination. Either way there is one
-button and one shortcut (`library-shortcut` in the preferences) — no home
-menu, no per-section buttons.
-
-The rest of the **Appearance** group is one set of settings that applies to
-every view: **rows** and **columns** (fewer of either means bigger covers),
-**corner radius**, and how much of the screen a pop-up fills. Colour comes
-from your system accent, and text sizes follow Settings → Accessibility →
-Large Text.
 
 ## Preferences
 
@@ -156,116 +84,33 @@ Large Text.
     <td width="33%"><img src="docs/screenshots/prefs-controls.png" alt="The Controls page: the keys a remote sends for Up, Down, Left, Right, Select, Back, Home and a page each way"></td>
   </tr>
   <tr>
-    <td valign="top"><b>General</b>: where things open, the shortcut, and how
-    the grid looks.</td>
-    <td valign="top"><b>TV Shows</b> and <b>Films</b>: folders, where artwork
-    comes from, and what plays them.</td>
-    <td valign="top"><b>Controls</b>: keys and controller buttons for driving
-    it from the sofa.</td>
+    <td valign="top"><b>General</b>: where things open, the keyboard shortcut,
+    and the grid's size and shape.</td>
+    <td valign="top"><b>TV Shows</b> and <b>Films</b>: folders, where the
+    artwork comes from, and which player to use.</td>
+    <td valign="top"><b>Controls</b>: keys and controller buttons for browsing
+    from the sofa.</td>
   </tr>
 </table>
 
-The screenshots are of a made-up library — `scripts/demo_library.py` draws it,
-and `./scripts/nested.sh start --clean --demo` shows it — not of anyone's real
-collection.
+## Troubleshooting
 
-## Watched, and remotes and controllers
-
-Tick an episode or film off in the detail pane, or just play it — VLC and
-anything else that shows up in the shell's media controls is followed over
-MPRIS — and it's marked watched. The Continue button on the detail pane picks
-up from there next time.
-
-The Controls page in the preferences lets you bind keys and controller
-buttons (read with libmanette) to the four directions, Select, Back, Home, a
-page each way and Mark watched, for driving the library from a remote or a
-game controller rather than a keyboard and mouse.
-
----
-
-## Artwork sources
-
-Each section has an ordered list of places to look, tried in turn until one
-answers:
-
-| Section | Sources | Key needed? |
-|---|---|---|
-| TV Shows | TVmaze, TMDB, Wikipedia | Only TMDB |
-| Films | TMDB, Wikipedia | Only TMDB |
-
-TVmaze and Wikipedia work straight away. TMDB adds backdrops, taglines,
-runtimes and ratings and is worth setting up — a free key from
-[themoviedb.org](https://www.themoviedb.org/settings/api) goes in the
-preferences and applies to both sections at once. An unkeyed source simply
-skips itself, so nothing breaks if you don't bother.
-
-> Keys are stored in dconf in plain text, like any other GNOME setting. Treat
-> them the way you'd treat any other credential on your machine.
-
----
-
-## Everyday commands
-
-You never need these — the preferences do the same things — but they're handy.
-
-| Command | Does |
-|---|---|
-| `make status` | What's installed, whether it's enabled, how big the library is |
-| `make scan` | Re-index every enabled section and fetch artwork |
-| `make logs` | Follow the shell journal, filtered to this extension |
-| `make uninstall` | Remove it entirely, older builds included |
-
-Something looks wrong? `make logs` first — a GNOME extension's errors go to
-the system journal, never to a terminal.
-
----
+If the library doesn't show up, or a scan finds nothing, `make logs` shows
+what went wrong.
 
 ## Development
 
-`CLAUDE.md` is the real design document: how the pieces fit together, which
-shell internals are being used and why, and the traps that bite. [`docs/`](docs/)
-holds what is not about working on the code day to day:
-[private-api.md](docs/private-api.md) (every reach into shell internals),
-[compatibility.md](docs/compatibility.md) (what has been tested where) and
-[publishing.md](docs/publishing.md) (making the extensions.gnome.org zip, and
-how it stands against the review guidelines).
-
 ```bash
-# Symlink src/ into the extensions dir, so edits are live
-make link
-
-# Apply your edits (recompiles schemas, disable/enable, no shell restart)
-make reload
-
-# Follow shell logs, filtered to Media Libraries
-make logs
+make link      # install as a link to src/, for development
+make reload    # apply your edits to the running shell, no logout needed
+make nested    # start a throwaway nested GNOME Shell, mirrored in a window
 ```
 
-`make link` is the one to use while working in this repo. Run it once; after
-that `make reload` picks up every edit straight from `src/`. Edits to
-`extension.js` or `metadata.json` still need a full log out and back in.
+`CLAUDE.md` explains how it's built. [`docs/`](docs/) covers the shell
+internals it depends on, compatibility, and publishing.
 
-| Command | Does |
-|---|---|
-| `make install` | Clean copy into the extensions dir (a real install, not a symlink) |
-| `make stalls` | Watch for desktop freezes and log what stalled, on what, with timestamps |
-| `make pack` | Build `dist/media-libraries@jackt.shell-extension.zip` |
-| `make prune` | Remove superseded builds of this extension, keeping the current one |
-| `make clean` | Drop compiled schemas, `dist/`, and files that don't ship |
+---
 
-### Seeing it
-
-The UI renders onto the desktop wallpaper, into the overview, or into a
-shell-native panel — not into an ordinary window — so a visual change can
-only be verified by looking at it. These targets drive a throwaway **nested
-GNOME Shell** with a live mirror on the real desktop — see `CLAUDE.md` and the
-`drive-extension` skill before using them.
-
-| Command | Does |
-|---|---|
-| `make nested` | Start the nested shell, with a live mirror window on the desktop |
-| `./scripts/nested.sh start --clean --demo` | Same, with settings of its own, no other extensions, and the made-up library the screenshots in `docs/screenshots/` are taken of |
-| `make nested-headless` | Same, without the mirror window |
-| `make preview` | Start it (if not already running) and take a screenshot |
-| `make nested-status` | Report whether it's running |
-| `make nested-stop` | Tear it down — always run this when finished |
+<sub>The screenshots show a made-up library drawn by `scripts/demo_library.py`
+(`./scripts/nested.sh start --clean --demo`). None of the shows or films are
+real.</sub>
