@@ -19,6 +19,8 @@ Steps:
     key KEYSYM             Escape, Return, a character, or a chord: Super+Page_Down
     wait SECONDS           pause, e.g. for a workspace slide to finish
     shot [FILE [X Y W H]]  screenshot, optionally of one region only
+    window FILE            screenshot of the focused window alone, frame
+                           and shadow included -- the preferences, say
     overview on|off        show/hide the Activities overview
 """
 
@@ -294,6 +296,20 @@ class Driver:
             raise StepError("Screenshot call returned failure.")
         return f"shot: {used}"
 
+    def window(self, path):
+        path = os.path.abspath(path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self._own_name()
+        ok, used = self.bus.call_sync(
+            "org.gnome.Shell", "/org/gnome/Shell/Screenshot",
+            "org.gnome.Shell.Screenshot", "ScreenshotWindow",
+            GLib.Variant("(bbbs)", (True, False, False, path)),
+            GLib.VariantType("(bs)"), Gio.DBusCallFlags.NONE, 15000, None,
+        ).unpack()
+        if not ok:
+            raise StepError("ScreenshotWindow returned failure (is a window focused?).")
+        return f"window: {used}"
+
     def overview(self, state):
         if state not in ("on", "off"):
             raise StepError("overview on|off")
@@ -308,7 +324,7 @@ class Driver:
             time.sleep(OVERVIEW_SETTLE)
         return f"overview {state}"
 
-    STEPS = {"say", "click", "move", "key", "wait", "shot", "overview"}
+    STEPS = {"say", "click", "move", "key", "wait", "shot", "window", "overview"}
 
     def run(self, argv):
         if not argv or argv[0] not in self.STEPS:

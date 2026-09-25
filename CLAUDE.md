@@ -22,7 +22,13 @@ out. `make preview` screenshots it. It can be clicked through
 (`./scripts/nested.sh click X Y`) to test the button beside Show Apps, the
 tabs it opens between TV Shows and Films, and Library → Detail navigation, and
 `./scripts/nested.sh say "..."` flashes a banner in it so the watcher knows
-what is about to happen.
+what is about to happen. **`start --clean`** gives it a settings database of
+its own — only this extension enabled, the real session's look copied in,
+nothing written to `~/.config/dconf/user` — which is what to use to test a
+setting while another project's nested shell is up; **`--demo`** on top shows
+the made-up library `scripts/demo_library.py` draws instead of the user's, and
+is what `docs/screenshots/` is taken of (a public repo gets nobody's real
+collection).
 
 Read the **`drive-extension` skill** before driving it; it covers the lifecycle and
 the traps. Keep one nested shell up across edits and `reload` into it; `make
@@ -31,6 +37,13 @@ nested-stop` tears it down — always do that when finished.
 All `make` targets delegate to `scripts/`: `dev.sh` for the extension itself and
 `nested.sh` for the nested-shell targets (`nested`, `nested-stop`, `preview`, …).
 Put new logic in those, not in the Makefile.
+
+`docs/` holds what is not about working on the code day to day:
+`docs/private-api.md` (every reach into shell internals, for reviewers and
+for porting to the next GNOME), `docs/compatibility.md` (what has been tested
+where, and what depends on the version), `docs/publishing.md` (making the
+extensions.gnome.org zip, and how the extension stands against the review
+guidelines), and `docs/screenshots/` (the README's images).
 
 ## Layout
 
@@ -560,7 +573,8 @@ up in that, rather than a blocking `file_test` per poster.
   leave; across a grid that is the cost of a hover. Only the few widgets that
   paint something from `:hover` (the tabs, the detail list's rows) track it,
   and no rule keys a descendant off a parent's `:hover`.
-- **`_backgroundGroup` and `_keepAliveId` are private API**, and so is every
+- **`_backgroundGroup` and `_keepAliveId` are private API** — the full list,
+  with what breaks if each one changes, is `docs/private-api.md` — and so is every
   path `overviewPreview.js` walks to reach the overview's previews
   (`controls._workspacesDisplay._workspacesViews`, a workspace's `_background`
   and its `_backgroundGroup`, `controls._thumbnailsBox._thumbnails`) and the

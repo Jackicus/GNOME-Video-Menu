@@ -7,10 +7,18 @@
 #                                     of it on the real desktop
 #   ./scripts/nested.sh start --headless [WxH]
 #                                     no mirror window; screenshots are the only view
+#   ./scripts/nested.sh start --clean [--demo] [WxH]
+#                                     a settings database of its own: only Media
+#                                     Libraries enabled, the real session's look copied
+#                                     in, nothing written to ~/.config/dconf/user. With
+#                                     --demo, the made-up library of demo_library.py
+#                                     instead of yours -- what the README's
+#                                     screenshots (docs/screenshots/) are taken of
 #   ./scripts/nested.sh do "STEP" "STEP"...
 #                                     run several steps in one go (one connection):
 #                                     say TEXT | click X Y | move X Y | key KEYSYM |
-#                                     wait SECS | shot [FILE [X Y W H]] | overview on|off
+#                                     wait SECS | shot [FILE [X Y W H]] | window FILE |
+#                                     overview on|off
 #   ./scripts/nested.sh say TEXT      flash TEXT as an on-screen banner in the nested
 #                                     shell, so whoever is watching knows what's next
 #   ./scripts/nested.sh shot [FILE [X Y W H]]
@@ -58,6 +66,14 @@ ACTIVITY_FILE="$RUN_DIR/activity"
 OWNER_FILE="$RUN_DIR/owner-session"
 IDLE_FILE="$RUN_DIR/idle-seconds"
 GUARD_OWNED_FILE="$RUN_DIR/owns-crash-guard"
+PROFILE_FILE="$RUN_DIR/dconf-profile"
+# --clean's database: ~/.config/dconf/<this>, written only by the nested
+# session's own dconf-service and deleted by 'stop'. dconf names a database by
+# a D-Bus object path element (/ca/desrt/dconf/Writer/<name>), so letters,
+# digits and underscores only: a hyphen fails every write.
+CLEAN_DB="media_libraries_nested"
+# --demo's cache home: the made-up library, and nothing else of the user's.
+DEMO_CACHE="$RUN_DIR/demo-cache"
 # GNOME Shell creates this for its first 60 s; if the shell crashes while it
 # exists, the systemd unit disables every extension. The nested shell shares the
 # runtime dir, so it creates the REAL session's copy -- and a stop inside those
@@ -97,10 +113,45 @@ nested_bus() {
 
 # Run a command against the nested shell's bus rather than the real session's.
 # Without this every gnome-extensions/gdbus call would hit your live desktop.
+# Under --clean, DCONF_PROFILE points everything at the private database too.
 nested_env() {
-    env DBUS_SESSION_BUS_ADDRESS="$(nested_bus)" \
+    local profile=()
+    [[ -s "$PROFILE_FILE" ]] && profile=(DCONF_PROFILE="$PROFILE_FILE")
+    env "${profile[@]}" DBUS_SESSION_BUS_ADDRESS="$(nested_bus)" \
         WAYLAND_DISPLAY="$WL_DISPLAY" \
         "$@"
+}
+
+# --clean: a dconf profile of the nested session's own. Its writable database
+# starts empty every time, over a read-only one seeded here with Media
+# Libraries alone in enabled-extensions and the real session's look, so the
+# nested shell shows nothing of the other extensions and matches the desktop
+# it is screenshotted for. The real ~/.config/dconf/user is never opened for
+# writing -- which also keeps it out of the way of any other project's nested
+# shell, whose dconf-service rewrites that file from a stale cache.
+setup_clean_profile() {
+    command -v dconf >/dev/null || die "'dconf' not found; --clean needs 'dconf compile'."
+    local seed="$RUN_DIR/dconf-seed" key value
+    mkdir -p "$seed"
+    {
+        echo "[org/gnome/shell]"
+        echo "enabled-extensions=['$UUID']"
+        echo "welcome-dialog-last-shown-version='999'"
+        echo
+        echo "[org/gnome/desktop/interface]"
+        for key in color-scheme accent-color gtk-theme icon-theme cursor-theme font-name \
+                   document-font-name monospace-font-name text-scaling-factor; do
+            value="$(gsettings get org.gnome.desktop.interface "$key" 2>/dev/null)" && echo "$key=$value"
+        done
+    } > "$seed/00-nested"
+    dconf compile "$RUN_DIR/dconf-defaults" "$seed" || die "dconf could not compile the --clean defaults."
+    printf 'user-db:%s\nfile-db:%s\n' "$CLEAN_DB" "$RUN_DIR/dconf-defaults" > "$PROFILE_FILE"
+    remove_clean_db
+}
+
+remove_clean_db() {
+    rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/dconf/$CLEAN_DB" \
+          "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dconf/$CLEAN_DB"
 }
 
 geometry() { cat "$GEOM_FILE" 2>/dev/null || echo '1600x900'; }
@@ -131,16 +182,26 @@ touch_activity() {
 cmd_start() {
     # Mirrored by default: the whole point of driving the extension is that the
     # user can see what is being tried, without logging out to look.
-    local mirror=1
-    case "${1:-}" in
-        --headless|--no-mirror) mirror=0; shift ;;
-        --windowed|--mirror) mirror=1; shift ;;
-    esac
+    local mirror=1 clean=0 demo=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --headless|--no-mirror) mirror=0 ;;
+            --windowed|--mirror) mirror=1 ;;
+            --clean) clean=1 ;;
+            --demo) demo=1 ;;
+            *) break ;;
+        esac
+        shift
+    done
     local geometry="${1:-1600x900}"
     [[ "$geometry" =~ ^[0-9]+x[0-9]+$ ]] || die "Geometry must look like 1600x900, got '$geometry'."
 
     if is_running; then
         info "Reusing the nested shell already running (pid $(cat "$PID_FILE"), $(geometry))."
+        (( clean )) && [[ ! -s "$PROFILE_FILE" ]] \
+            && warn "It shares the real session's settings; 'stop' and start again for --clean."
+        (( demo )) && [[ ! -d "$DEMO_CACHE" ]] \
+            && warn "It shows your own library; 'stop' and start again for --demo."
         [[ $mirror -eq 1 ]] && ! mirror_running && cmd_mirror on
         [[ "$(nested_state)" == "ACTIVE" ]] || enable_in_nested
         return 0
@@ -171,12 +232,24 @@ cmd_start() {
     [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]] && echo "$CLAUDE_CODE_SESSION_ID" > "$OWNER_FILE"
 
     local mode_args=(--wayland --wayland-display "$WL_DISPLAY" --headless --virtual-monitor "$geometry")
+    local extra_env=()
+    if (( clean )); then
+        setup_clean_profile
+        extra_env+=(DCONF_PROFILE="$PROFILE_FILE")
+    fi
+    if (( demo )); then
+        python3 "$REPO_DIR/scripts/demo_library.py" "$DEMO_CACHE" >/dev/null \
+            || die "Could not make the demo library (scripts/demo_library.py)."
+        extra_env+=(XDG_CACHE_HOME="$DEMO_CACHE")
+    fi
 
-    info "Starting nested GNOME Shell (headless, $geometry)..."
+    info "Starting nested GNOME Shell (headless, $geometry$( (( clean )) && echo ', own settings, no other extensions')$( (( demo )) && echo ', demo library'))..."
 
     # dbus-run-session creates the bus; we echo its address out so later commands
-    # can address this shell specifically.
-    setsid dbus-run-session -- bash -c '
+    # can address this shell specifically. The bus daemon hands its environment
+    # -- DCONF_PROFILE and XDG_CACHE_HOME included -- to everything it
+    # activates, the prefs window among them.
+    setsid env "${extra_env[@]}" dbus-run-session -- bash -c '
         echo "$DBUS_SESSION_BUS_ADDRESS" > "$1"
         exec gnome-shell "${@:2}"
     ' _ "$BUS_FILE" "${mode_args[@]}" >>"$LOG_FILE" 2>&1 &
@@ -293,6 +366,7 @@ cmd_stop() {
     fi
     kill_strays
     [[ -e "$GUARD_OWNED_FILE" ]] && rm -f "$CRASH_GUARD"
+    [[ -s "$PROFILE_FILE" ]] && remove_clean_db
     rm -rf "$RUN_DIR"
 }
 

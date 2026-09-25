@@ -7,6 +7,8 @@ video library: posters, backdrops, ratings, synopses, episode lists. It lives
 on the desktop wallpaper, in the overview beside your apps, or in a panel that
 pops out of a button — your choice, and you can change your mind at any time.
 
+![The library in the overview: TV Shows and Films tabs over a grid of posters, opened from the television button in the dash](docs/screenshots/menu.jpg)
+
 **It does not play anything.** There is no player in here, no codecs, no
 transcoding, no server. It finds your media, dresses it up, and when you pick
 something it hands the file to whatever app already opens that kind of file —
@@ -115,6 +117,25 @@ read independently of each other:
 | **Menu** | The library sits in the overview next to your apps, opened from the button beside Show Apps | The details pop up the way an app folder does |
 | **Modal** | The library pops out of that button into a panel over the desktop | The details pop up over everything, until you dismiss them |
 
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/detail.jpg" alt="A show picked in the overview: its details pop up the way an app folder opens, poster and Play button on the left, facts, synopsis and a season's episodes on the right"></td>
+    <td width="50%"><img src="docs/screenshots/modal.jpg" alt="The library in a panel over the desktop, on the Films tab"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Menu</b>: a pick pops up out of its poster.</td>
+    <td valign="top"><b>Modal</b>: the library in a panel over the desktop.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/desktop.jpg" alt="The library drawn on the desktop wallpaper, with Settings and Close at the top right"></td>
+    <td width="50%"><img src="docs/screenshots/desktop-detail.jpg" alt="A film picked on the desktop: its details take the grid's place, with Back to library at the top left"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Desktop</b>: the library on the wallpaper.</td>
+    <td valign="top"><b>Desktop</b>: a pick takes the grid's place.</td>
+  </tr>
+</table>
+
 Mix them however you like — a library in the overview with details popping up
 over the desktop is a perfectly good combination. Either way there is one
 button and one shortcut (`library-shortcut` in the preferences) — no home
@@ -125,6 +146,28 @@ every view: **rows** and **columns** (fewer of either means bigger covers),
 **corner radius**, and how much of the screen a pop-up fills. Colour comes
 from your system accent, and text sizes follow Settings → Accessibility →
 Large Text.
+
+## Preferences
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/prefs-general.png" alt="The General page: where the library and a picked item open, playing on a new workspace, the keyboard shortcut, and the rows, columns and other appearance settings"></td>
+    <td width="33%"><img src="docs/screenshots/prefs-tv-shows.png" alt="The TV Shows page: the switch for the TV Shows tab, its folders, and the information sources tried in order — TVmaze, TMDB and Wikipedia"></td>
+    <td width="33%"><img src="docs/screenshots/prefs-controls.png" alt="The Controls page: the keys a remote sends for Up, Down, Left, Right, Select, Back, Home and a page each way"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>General</b>: where things open, the shortcut, and how
+    the grid looks.</td>
+    <td valign="top"><b>TV Shows</b> and <b>Films</b>: folders, where artwork
+    comes from, and what plays them.</td>
+    <td valign="top"><b>Controls</b>: keys and controller buttons for driving
+    it from the sofa.</td>
+  </tr>
+</table>
+
+The screenshots are of a made-up library — `scripts/demo_library.py` draws it,
+and `./scripts/nested.sh start --clean --demo` shows it — not of anyone's real
+collection.
 
 ## Watched, and remotes and controllers
 
@@ -180,7 +223,12 @@ the system journal, never to a terminal.
 ## Development
 
 `CLAUDE.md` is the real design document: how the pieces fit together, which
-shell internals are being used and why, and the traps that bite.
+shell internals are being used and why, and the traps that bite. [`docs/`](docs/)
+holds what is not about working on the code day to day:
+[private-api.md](docs/private-api.md) (every reach into shell internals),
+[compatibility.md](docs/compatibility.md) (what has been tested where) and
+[publishing.md](docs/publishing.md) (making the extensions.gnome.org zip, and
+how it stands against the review guidelines).
 
 ```bash
 # Symlink src/ into the extensions dir, so edits are live
@@ -216,6 +264,7 @@ GNOME Shell** with a live mirror on the real desktop — see `CLAUDE.md` and the
 | Command | Does |
 |---|---|
 | `make nested` | Start the nested shell, with a live mirror window on the desktop |
+| `./scripts/nested.sh start --clean --demo` | Same, with settings of its own, no other extensions, and the made-up library the screenshots in `docs/screenshots/` are taken of |
 | `make nested-headless` | Same, without the mirror window |
 | `make preview` | Start it (if not already running) and take a screenshot |
 | `make nested-status` | Report whether it's running |

@@ -48,11 +48,25 @@ walkthrough is **one** tool call, and it stops at the first failing step:
 | `key KEYSYM` | `Escape`, `Return`, arrows, `F1`–`F12`, a remote's `XF86OK`/`XF86Back`/`XF86HomePage`/`XF86ChannelUp`…, one character, or a chord like `Super+Page_Down` |
 | `wait SECS` | Let an animation land: ~1 s after anything that changes workspace (the button, a tab switch that claims or releases one), ~0.6 s after opening or closing an item |
 | `shot [FILE [X Y W H]]` | Screenshot, or **just a region** — crop to what you are checking (a header strip, one tile) rather than reading 1600×900 every time |
+| `window FILE` | Screenshot of the focused window alone, frame and shadow included — how the preferences in `docs/screenshots/` are taken |
 | `overview on\|off` | Show/hide the overview. While on, shots and clicks act on it (for `overviewPreview.js`); nothing dismisses it until `off`. |
 
 The same steps exist as single commands (`./scripts/nested.sh click X Y`, …) for a
 one-off; prefer `do`. Other commands: `status`, `reload`, `logs [N] [--all]`,
-`mirror on|off`, `run CMD…` (against the nested bus), `start --headless [WxH]`.
+`mirror on|off`, `run CMD…` (against the nested bus), `start --headless [WxH]`,
+`start --clean [--demo]` (below).
+
+## Screenshots for the docs
+
+`docs/screenshots/` — the README's images — are taken in
+`./scripts/nested.sh start --clean --demo`: settings of its own with only Media
+Libraries enabled and the real session's look copied in (so GNOME's default
+wallpaper, and the library button in the overview's dash at ≈ (960, 838)), and
+the made-up library `scripts/demo_library.py` draws, pointed at through the
+session's `XDG_CACHE_HOME` — never the user's own collection, which is not for
+a public repo. Full-screen shots go in as JPEG, windows (`window FILE`, the
+preferences) as PNG. Switch places with `run gsettings --schemadir
+"$PWD/src/schemas" set …`, which under `--clean` writes the private database.
 
 ## Closing what you open
 
@@ -139,25 +153,15 @@ reads as "no change". `logs` hides D-Bus activation and portal chatter; `logs 20
   caches the database at start and rewrites the whole file from that stale
   cache on its first write — so a setting changed for a test, even one made
   from a *different* project's nested shell, can silently revert within
-  seconds of this one starting. The fix is a private database, not sharing
-  the real one at all:
-  ```bash
-  printf 'user-db:media_libraries_nested_test\n' > "$S/dconf-profile"
-  # Seed it from the real session once, minus the credentials line:
-  dconf dump /org/gnome/shell/ | grep -v credentials \
-    | DCONF_PROFILE="$S/dconf-profile" dconf load /org/gnome/shell/
-  # Desktop/mutter paths (workspaces, keybindings) the extension also reads:
-  dconf dump /org/gnome/desktop/wm/ \
-    | DCONF_PROFILE="$S/dconf-profile" dconf load /org/gnome/desktop/wm/
-  export DCONF_PROFILE="$S/dconf-profile"   # before every nested.sh call
-  ./scripts/nested.sh start                 # nested.sh passes the env through
-  # ...
-  rm ~/.config/dconf/media_libraries_nested_test   # after `stop`
-  ```
-  A dconf db name must **not** contain a hyphen — it becomes a D-Bus object
-  path, and `media-libraries-nested-test` is not a legal one, hence the
-  underscores above. Re-check what landed with
-  `gsettings --schemadir src/schemas list-recursively org.gnome.shell.extensions.media-libraries`.
+  seconds. **To test a setting, `start --clean`**: the nested session gets a
+  database of its own (`media_libraries_nested`, a writable layer that starts
+  empty every time over a read-only one with Media Libraries alone enabled and
+  the real session's look), `run gsettings …` writes there, and `stop` deletes
+  it. Nothing touches `~/.config/dconf/user`. The catch is that it has none of
+  the real session's settings or extensions — no Dash to Panel, no Blur my
+  Shell, no folders — so test against those without `--clean`, and change
+  settings only while no other nested shell is up. A dconf database name must
+  not contain a hyphen: it becomes a D-Bus object path element.
 - **`start` enables Media Libraries** if dconf doesn't list it — which writes
   `enabled-extensions`, so the real session will load it at the next login too.
 - **The one button sits beside Show Apps.** The nested shell loads the real
