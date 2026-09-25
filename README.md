@@ -25,8 +25,8 @@ anything itself. Pick an episode and it opens in VLC, mpv or whatever you use.
 Needs GNOME Shell 48, 49 or 50, and Python 3 for the folder scanner.
 
 ```bash
-git clone https://github.com/Jackicus/Gnome-Extension-Video-Menu.git
-cd Gnome-Extension-Video-Menu
+git clone https://github.com/Jackicus/GNOME-Video-Menu.git
+cd GNOME-Video-Menu
 make install
 ```
 

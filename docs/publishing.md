@@ -135,7 +135,7 @@ paths resolve the way `extension.js`'s `this.dir`-relative code expects.
 | `shell-version` | `["48", "49", "50"]` | All released, so allowed by "MUST NOT claim future versions." Worth knowing: per the root `CLAUDE.md`, 48 and 49 are audited against the shell's sources, not actually booted — only 50 has been run. A reviewer's VM may be on 48 or 49 |
 | `version` | `1` | **Should be removed.** The Anatomy page: "This field SHOULD NOT be set by extension developers"; EGO assigns and increments it on every upload |
 | `version-name` | absent | Worth adding — see below |
-| `url` | absent | **Should be added**, pointing at `https://github.com/Jackicus/Gnome-Extension-Video-Menu` (the repo's current origin) |
+| `url` | absent | **Should be added**, pointing at `https://github.com/Jackicus/GNOME-Video-Menu` (the repo's current origin) |
 | `session-modes` | absent | Correct — the extension only needs `user` mode and the guideline says the key "MUST be dropped" in that case |
 | `donations`, `gettext-domain` | absent | Correct; neither is required |
 
@@ -435,9 +435,9 @@ bundled; the one shipped icon (`icons/library-symbolic.svg`) is original.
 
 ### The extension name versus the repo name
 
-The repository was just renamed to `Gnome-Extension-Video-Menu` (its GitHub
-remote is `github.com/Jackicus/Gnome-Extension-Video-Menu`), evidently to sit
-alongside its sibling `Gnome-Extension-Games-Menu`. Neither `metadata.json`
+The repository was just renamed to `GNOME-Video-Menu` (its GitHub
+remote is `github.com/Jackicus/GNOME-Video-Menu`), evidently to sit
+alongside its sibling `GNOME-Games-Menu`. Neither `metadata.json`
 (`name: "Media Libraries"`), the UUID (`media-libraries@jackt`) nor the
 README's own title (`# Media Libraries`) has followed that rename yet. This
 is not itself a guideline violation — EGO reviews the shipped `name` and

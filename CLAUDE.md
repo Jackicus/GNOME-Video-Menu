@@ -7,7 +7,7 @@ No window, no titlebar. Shell versions 48 to 50 (48 and 49 by audit against
 the shell's sources, not by boot — see the compat note in Gotchas).
 
 A sibling extension, **Games Menu** (`games-menu@jackt`,
-`/home/jackt/Projects/Gnome-Extension-Games-Menu`), is the same idea for a
+`/home/jackt/Projects/GNOME-Extensions/GNOME-Games-Menu`), is the same idea for a
 games library and is meant to run alongside this one — see the coexistence
 note near the end of this file for what that costs each of them.
 

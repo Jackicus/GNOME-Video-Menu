@@ -578,7 +578,7 @@ own next check, rather than immediately — cosmetic, not a correctness issue
 ## The overview previews and the workspace slide (overviewPreview.js)
 
 This file's structure and every field in it are the same idea as Wallpaper
-Engine's own `overviewPreview.js` (`../../Gnome-Extension-Wallpaper-Engine/docs/private-api.md`),
+Engine's own `overviewPreview.js` (`../../GNOME-Wallpaper-Engine/docs/private-api.md`),
 reached for the same reason: neither the overview's workspace previews nor the
 workspace-slide strip shows `Main.layoutManager._backgroundGroup` — each
 builds a wallpaper of its own — so a surface parented there is simply absent
