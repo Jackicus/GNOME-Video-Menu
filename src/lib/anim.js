@@ -90,7 +90,10 @@ export function staggerIn(actors, {step = 12, cap = 150, fromY = 10, duration = 
 }
 
 // Slide one actor out and another in along x, like switching app grid pages.
-// direction is +1 (moving right) or -1 (moving left).
+// direction is +1 (moving right) or -1 (moving left). `onComplete` runs when
+// the incoming actor's slide ends — cut short by the next swap as much as
+// landed — since what it does is let go of the outgoing one, and a swap
+// interrupted by another would otherwise keep that forever.
 export function slideSwap(outgoing, incoming, direction, {distance = 32, onComplete} = {}) {
     if (outgoing) {
         outgoing.remove_all_transitions();
@@ -115,11 +118,11 @@ export function slideSwap(outgoing, incoming, direction, {distance = 32, onCompl
         translation_x: 0,
         duration: Duration.NORMAL,
         mode: Ease.OUT,
-        onComplete,
+        onStopped: () => onComplete?.(),
     });
 }
 
-export function fadeTo(actor, opacity, {duration = Duration.NORMAL, onComplete} = {}) {
+export function fadeTo(actor, opacity, {duration = Duration.NORMAL} = {}) {
     actor.remove_all_transitions();
     if (opacity > 0)
         actor.show();
@@ -130,7 +133,6 @@ export function fadeTo(actor, opacity, {duration = Duration.NORMAL, onComplete} 
         onComplete: () => {
             if (opacity === 0)
                 actor.hide();
-            onComplete?.();
         },
     });
 }
@@ -146,6 +148,10 @@ export function fadeTo(actor, opacity, {duration = Duration.NORMAL, onComplete} 
 // into its own box, so scale looks identical, corner radius stretched and all,
 // and both interpolate linearly so the frames between match too. The pivot
 // stays at the top-left, the corner the rectangles are anchored by.
+//
+// It settles when the clone goes, however it goes: landed, or destroyed
+// under it by whoever empties the layer. A flight that never settled would
+// leave its caller waiting forever, with the real artwork still hidden.
 export function flyClone(layer, source, from, to, {duration = Duration.SLOW} = {}) {
     return new Promise(resolve => {
         const clone = new Clutter.Clone({
@@ -156,6 +162,7 @@ export function flyClone(layer, source, from, to, {duration = Duration.SLOW} = {
             height: from.height,
         });
         clone.set_pivot_point(0, 0);
+        clone.connect('destroy', () => resolve());
         layer.add_child(clone);
         clone.ease({
             translation_x: to.x - from.x,
@@ -164,10 +171,7 @@ export function flyClone(layer, source, from, to, {duration = Duration.SLOW} = {
             scale_y: to.height / Math.max(1, from.height),
             duration,
             mode: Ease.OUT_EXPO,
-            onComplete: () => {
-                clone.destroy();
-                resolve();
-            },
+            onComplete: () => clone.destroy(),
         });
     });
 }

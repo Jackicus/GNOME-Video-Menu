@@ -67,7 +67,9 @@ export function createArtwork({path, title, icon, width, height, styleClass = 'm
         style_class: 'ml-art-placeholder-icon',
         x_align: Clutter.ActorAlign.CENTER,
     }));
-    if (title && width >= 120) {
+    // Room for a title, and the most it may take, in logical px against a
+    // physical size.
+    if (title && width >= 120 * scale) {
         const label = new St.Label({
             text: title,
             style_class: 'ml-art-placeholder-title',
@@ -78,7 +80,7 @@ export function createArtwork({path, title, icon, width, height, styleClass = 'm
         label.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
         label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         label.clutter_text.x_align = Clutter.ActorAlign.CENTER;
-        label.height = Math.min(64, Math.round(height * 0.3));
+        label.height = Math.min(64 * scale, Math.round(height * 0.3));
         stack.add_child(label);
     }
     art.add_child(stack);
@@ -147,8 +149,10 @@ function createTitles(title = '', subtitle = '') {
         style_class: 'ml-header-titles',
         y_align: Clutter.ActorAlign.CENTER,
     });
-    const titleLabel = new St.Label({style_class: 'ml-header-title', text: title});
-    const subtitleLabel = new St.Label({style_class: 'ml-header-subtitle', text: subtitle});
+    // One line each: a long title of a pick would otherwise run under the
+    // buttons at the header's far end.
+    const titleLabel = createLabel(title, 'ml-header-title');
+    const subtitleLabel = createLabel(subtitle, 'ml-header-subtitle');
     actor.add_child(titleLabel);
     actor.add_child(subtitleLabel);
     return {actor, titleLabel, subtitleLabel};

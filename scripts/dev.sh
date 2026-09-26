@@ -22,7 +22,8 @@ set -euo pipefail
 UUID="media-libraries@jackt"
 # Append to this on each rename so `prune` sweeps up every superseded build.
 LEGACY_UUIDS=("gnomeflix@jackt" "media-workspace-desktop@jackt")
-CACHE_DIR="$HOME/.cache/media-libraries"
+# As GLib.get_user_cache_dir() resolves it in the extension.
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/media-libraries"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_DIR="$REPO_DIR/src"
@@ -169,11 +170,14 @@ cmd_pack() {
     stage=$(mktemp -d)
     cp -r "$SRC_DIR"/. "$stage"/
     strip_unshipped "$stage"
-    ( cd "$stage" && gnome-extensions pack --force \
+    if ! ( cd "$stage" && gnome-extensions pack --force \
         --extra-source=lib \
         --extra-source=backend \
         --extra-source=icons \
-        -o "$out" . )
+        -o "$out" . ); then
+        rm -rf "$stage"
+        die "gnome-extensions pack failed"
+    fi
     rm -rf "$stage"
     ok "Packed to $out/$UUID.shell-extension.zip"
 }

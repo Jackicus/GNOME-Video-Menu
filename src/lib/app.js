@@ -51,7 +51,7 @@ import {setGridAlign} from './mediaGrid.js';
 import {HEADER_ALLOWANCE, LibraryView} from './libraryView.js';
 import {LibraryButton} from './libraryButton.js';
 import {DetailView} from './detailView.js';
-import {OverviewPreview} from './overviewPreview.js';
+import {OverviewPreview, installSlideHook, removeSlideHook} from './overviewPreview.js';
 import {MediaMenu} from './mediaMenu.js';
 import {LibraryWindow} from './libraryWindow.js';
 import {DetailDialog} from './detailDialog.js';
@@ -223,6 +223,9 @@ export class MediaLibrariesApp {
         this._tracker.enable();
         this._playback.enable();
         this._sections = loadLibrary();
+        // Once, for the life of the extension; the previews of each build
+        // take turns behind it.
+        installSlideHook();
         this._build();
 
         global.workspace_manager.connectObject(
@@ -286,12 +289,8 @@ export class MediaLibrariesApp {
                 if (event === Gio.FileMonitorEvent.CHANGES_DONE_HINT ||
                     event === Gio.FileMonitorEvent.CREATED ||
                     event === Gio.FileMonitorEvent.RENAMED ||
-                    event === Gio.FileMonitorEvent.MOVED_IN) {
+                    event === Gio.FileMonitorEvent.MOVED_IN)
                     this._scheduleRebuild({reload: true, delay: 400});
-                    // A rescan is a good moment to look for another
-                    // machine's marks in the folders.
-                    this._tracker.sync();
-                }
             });
         } catch (e) {
             console.warn(`[Media Libraries] Could not watch library.json: ${e}`);
@@ -320,6 +319,7 @@ export class MediaLibrariesApp {
         this._rebuildTimer = this._closeTimer = 0;
         this._leaving.clear();
         this._teardown();
+        removeSlideHook();
         this._button.detach();
         this._libraryWorkspace = this._detailWorkspace = null;
         this._picked = this._origin = null;
@@ -382,8 +382,13 @@ export class MediaLibrariesApp {
             GLib.source_remove(this._rebuildTimer);
         this._rebuildTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
             this._rebuildTimer = 0;
-            if (this._reloadWanted)
+            if (this._reloadWanted) {
                 this._sections = loadLibrary();
+                // A rescan is a good moment to look for another machine's
+                // marks in the folders — once per rescan, not once per write
+                // and event of it.
+                this._tracker.sync();
+            }
             this._reloadWanted = false;
             // A browser being looked at is put back on the same tab once
             // rebuilt, so the change that caused the rebuild shows where it
@@ -697,8 +702,7 @@ export class MediaLibrariesApp {
     _closeLibrary() {
         if (this._busy)
             return;
-        this._dialog?.popdown();
-        this._browser?.close();
+        this._dismiss();
         const wm = global.workspace_manager;
         const active = wm.get_active_workspace();
         const given = new Map();
@@ -713,6 +717,11 @@ export class MediaLibrariesApp {
 
         this._picked = null;
         this._libraryWorkspace = this._detailWorkspace = null;
+        // Nothing of ours is on show now, whatever page was up — a pick open
+        // in the grid's place included. Left as it was, the next opening on
+        // a fresh workspace found "the library" already showing and brought
+        // that pick back.
+        this._shown = null;
 
         if (given.has(active)) {
             const claimed = [...given.keys()];
@@ -761,11 +770,17 @@ export class MediaLibrariesApp {
             this._openLibrary();
     }
 
+    // Whatever of ours is up over the desktop, put away: the popup, the
+    // browser (which takes the overview it opened down with it).
+    _dismiss() {
+        this._dialog?.popdown();
+        this._browser?.close();
+    }
+
     // Everything that goes to the preferences goes out of the library first,
     // or the overview or a panel of ours would be over the window.
     _openSettings() {
-        this._dialog?.popdown();
-        this._browser?.close();
+        this._dismiss();
         this._extension.openPreferences();
     }
 
@@ -952,8 +967,7 @@ export class MediaLibrariesApp {
             console.warn('[Media Libraries] No empty workspace to play on (Settings → Multitasking).');
             return;
         }
-        this._dialog?.popdown();
-        this._browser?.close();
+        this._dismiss();
         Main.overview.hide();
         workspace.activate(global.get_current_time());
     }
@@ -1413,7 +1427,10 @@ export class MediaLibrariesApp {
             return;
         const focus = global.stage.get_key_focus();
         const ours = focus && this._container.contains(focus);
-        if (onTarget && !ours)
+        // Never out from under a grab — a menu in the top bar, a popup of
+        // ours — as `_onStageFocusChanged` has it: a rebuild landing under
+        // one takes the keyboard back when the grab goes.
+        if (onTarget && !ours && Main.modalCount === 0)
             global.stage.set_key_focus(this._container);
         else if (!onTarget && ours)
             global.stage.set_key_focus(null);

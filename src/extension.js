@@ -70,12 +70,19 @@ export default class MediaLibrariesExtension extends Extension {
 
         const runDir = GLib.build_filenamev([base, `lib-${stamp}`]);
         if (!Gio.File.new_for_path(runDir).query_exists(null)) {
-            GLib.mkdir_with_parents(runDir, 0o700);
+            // Built beside its name and moved into it whole, so a shell that
+            // went down mid-copy leaves nothing a later enable takes for a
+            // finished stage; the sweep below removes the leftover.
+            const building = `${runDir}.building`;
+            this._removeTree(Gio.File.new_for_path(building));
+            GLib.mkdir_with_parents(building, 0o700);
             for (const name of names) {
                 src.get_child(name).copy(
-                    Gio.File.new_for_path(GLib.build_filenamev([runDir, name])),
+                    Gio.File.new_for_path(GLib.build_filenamev([building, name])),
                     Gio.FileCopyFlags.OVERWRITE, null, null);
             }
+            if (GLib.rename(building, runDir) !== 0)
+                throw new Error(`could not move ${building} into place`);
         }
         // GJS caches modules by URL for the process's life, so a stage that
         // already exists (an unlock re-enabling into the same content) is

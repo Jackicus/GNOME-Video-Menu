@@ -11,7 +11,6 @@ metadata fields are always rebuilt from scratch, so switching provider still
 refetches everything.
 """
 
-import hashlib
 import os
 import re
 
@@ -30,7 +29,13 @@ def natural_sort_key(s):
 
 
 def slug(name):
-    return re.sub(r"[^a-zA-Z0-9]", "_", name.lower())
+    """A folder name as an id. Letters and digits of any script stay: two
+    titles in Japanese or Cyrillic came out as the same run of underscores
+    otherwise, and were only told apart by their place in the list — so the
+    cached record and poster of one moved to the other as titles came and
+    went. Punctuation and spaces go, as they always did, so an existing
+    ASCII id is the same id."""
+    return re.sub(r"[^\w]", "_", name.lower())
 
 
 def split_year(name):
@@ -48,24 +53,27 @@ def file_size_mb(path):
         return 0
 
 
-def subdirs(path):
+# scandir rather than listdir and a stat per name: what kind of thing an
+# entry is comes with the listing, which on a share is a round trip saved for
+# every name in the folder.
+def _scan(path):
     try:
-        names = sorted(os.listdir(path), key=natural_sort_key)
+        with os.scandir(path) as it:
+            return sorted(it, key=lambda e: natural_sort_key(e.name))
     except OSError as e:
         print(f"Cannot read {path}: {e}")
         return []
-    return [n for n in names if not n.startswith(".") and os.path.isdir(os.path.join(path, n))]
+
+
+def subdirs(path):
+    return [e.name for e in _scan(path) if not e.name.startswith(".") and e.is_dir()]
 
 
 def files_with_ext(path, extensions):
-    try:
-        names = sorted(os.listdir(path), key=natural_sort_key)
-    except OSError:
-        return []
     return [
-        n for n in names
-        if not n.startswith(".") and os.path.splitext(n)[1].lower() in extensions
-        and os.path.isfile(os.path.join(path, n))
+        e.name for e in _scan(path)
+        if not e.name.startswith(".") and os.path.splitext(e.name)[1].lower() in extensions
+        and e.is_file()
     ]
 
 
@@ -125,7 +133,10 @@ def _video_entries(folder):
     """Every video under folder (recursively), with subtitle and size info."""
     entries = []
     for root, dirs, files in os.walk(folder):
+        # Dot-files are nobody's media: a share written to from a Mac carries
+        # a ._Episode.mkv beside every Episode.mkv.
         dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        files = [f for f in files if not f.startswith(".")]
         sub_stems = {
             os.path.splitext(f)[0].lower()
             for f in files
@@ -139,9 +150,8 @@ def _video_entries(folder):
             fpath = os.path.join(root, fname)
             stem = os.path.splitext(fname)[0]
             stem_l = stem.lower()
-            has_sub = stem_l in sub_stems or any(
-                s.startswith(stem_l) or stem_l.startswith(s.split(".")[0]) for s in sub_stems
-            )
+            # Its own name, or its own name and a language ("Episode.en").
+            has_sub = stem_l in sub_stems or any(s.startswith(f"{stem_l}.") for s in sub_stems)
             entries.append({
                 "filename": fname,
                 "path": fpath,
@@ -157,10 +167,15 @@ def _video_entries(folder):
 # --------------------------------------------------------------------------
 # TV shows: <root>/<Show>/[Season N/]<episode>.mkv
 # --------------------------------------------------------------------------
-def scan_tv(root, previous=None):
+def scan_tv(root, previous=None, exclude=()):
+    """Shows under root. Folders in `exclude` (the films folder, when it lives
+    inside the TV folder) are skipped rather than read as a show."""
+    skip = {os.path.realpath(p) for p in exclude if p}
     shows = []
     for name in subdirs(root):
         folder = os.path.join(root, name)
+        if skip and os.path.realpath(folder) in skip:
+            continue
         show_id = slug(name)
         signature = folder_signature(folder)
         episodes = reusable(previous, show_id, signature, "episodes")
@@ -204,7 +219,7 @@ def scan_films(root, exclude=(), previous=None):
     films = []
     for name in subdirs(root):
         folder = os.path.join(root, name)
-        if os.path.realpath(folder) in skip:
+        if skip and os.path.realpath(folder) in skip:
             continue
         film_id = slug(name)
         signature = folder_signature(folder)
@@ -214,10 +229,11 @@ def scan_films(root, exclude=(), previous=None):
         if not files:
             continue
         title, year = split_year(name)
-        films.append(_film_entry(name, title, year, folder, files, signature))
+        films.append(_film_entry(name, title, year, folder, files, signature, find_local_cover(folder)))
 
     # A film that is one loose file has nothing to walk, so it is always read
-    # afresh; no signature means nothing ever reuses it either.
+    # afresh; no signature means nothing ever reuses it either. Nor has it a
+    # cover of its own: one in the root would be every loose film's.
     for fname in files_with_ext(root, VIDEO_EXTENSIONS):
         stem = os.path.splitext(fname)[0]
         title, year = split_year(stem)
@@ -226,13 +242,13 @@ def scan_films(root, exclude=(), previous=None):
             "filename": fname, "path": fpath, "title": stem, "group": None,
             "has_subtitles": False, "size_mb": file_size_mb(fpath),
         }]
-        films.append(_film_entry(stem, title, year, root, files, None))
+        films.append(_film_entry(stem, title, year, root, files, None, None))
 
     films.sort(key=lambda f: natural_sort_key(f["title"]))
     return films
 
 
-def _film_entry(name, title, year, folder, files, signature):
+def _film_entry(name, title, year, folder, files, signature, cover):
     # The main feature is the largest file; extras and samples are smaller.
     main = max(files, key=lambda f: f["size_mb"])
     return {
@@ -244,13 +260,9 @@ def _film_entry(name, title, year, folder, files, signature):
         "scan_sig": signature,
         "files": files,
         "main_path": main["path"],
-        "poster_path": find_local_cover(folder),
+        "poster_path": cover,
         "summary": None,
         "genres": [],
         "rating": None,
         "runtime": None,
     }
-
-
-def path_key(path):
-    return hashlib.sha1(path.encode("utf-8", "surrogateescape")).hexdigest()[:20]

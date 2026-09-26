@@ -80,6 +80,13 @@ export class Tracker extends Signals.EventEmitter {
         this._written = new Map();
         this._writing = new Set();
         this._again = new Set();
+        // The local file the same way: one write at a time, the latest
+        // marks after it.
+        this._savingLocal = false;
+        this._saveAgain = false;
+        // The folder list, read from the settings once until they change:
+        // it is asked for on every reading of a playing file's position.
+        this._folderList = null;
     }
 
     // Only the sections of things that are watched — every section names one
@@ -98,16 +105,23 @@ export class Tracker extends Signals.EventEmitter {
         this._mode = this._settings.get_string('tracking');
         this._settings.connectObject('changed::tracking', () => this._onModeChanged(), this);
         for (const section of SECTIONS.filter(Tracker.tracks)) {
-            for (const key of [`${section.prefix}-folders`, `${section.prefix}-path`])
-                this._settings.connectObject(`changed::${key}`, () => this.sync(), this);
+            for (const key of [`${section.prefix}-folders`, `${section.prefix}-path`]) {
+                this._settings.connectObject(`changed::${key}`, () => {
+                    this._folderList = null;
+                    this.sync();
+                }, this);
+            }
         }
         this.sync();
     }
 
+    // Reads in flight are dropped; a write in flight is let finish, since
+    // it was started with what is known and is small (see `_writeFolder`).
     disable() {
         this._settings.disconnectObject(this);
         this._cancellable?.cancel();
         this._cancellable = null;
+        this._folderList = null;
         this._written.clear();
         this._writing.clear();
         this._again.clear();
@@ -211,6 +225,8 @@ export class Tracker extends Signals.EventEmitter {
     // Where a path belongs
     // ------------------------------------------------------------------
     _folders() {
+        if (this._folderList)
+            return this._folderList;
         const folders = new Set();
         for (const section of SECTIONS.filter(Tracker.tracks)) {
             let listed = this._settings.get_strv(`${section.prefix}-folders`);
@@ -219,12 +235,17 @@ export class Tracker extends Signals.EventEmitter {
             if (!listed.length && this._settings.get_string(`${section.prefix}-path`))
                 listed = [this._settings.get_string(`${section.prefix}-path`)];
             for (const folder of listed) {
-                const trimmed = folder.replace(/\/+$/, '');
+                // As the scanner reads it: `~` is the home folder, and a
+                // trailing slash is nothing.
+                let trimmed = folder.replace(/\/+$/, '');
+                if (trimmed === '~' || trimmed.startsWith('~/'))
+                    trimmed = GLib.get_home_dir() + trimmed.slice(1);
                 if (trimmed)
                     folders.add(trimmed);
             }
         }
-        return [...folders];
+        this._folderList = [...folders];
+        return this._folderList;
     }
 
     // The innermost listed folder a path is under, so a folder listed inside
@@ -262,18 +283,40 @@ export class Tracker extends Signals.EventEmitter {
             if (ok)
                 this._entries = parse(bytes);
         } catch (e) {
-            console.warn(`[Media Libraries] Could not read ${path}: ${e}`);
+            // Put aside rather than read as empty: the next mark would write
+            // an empty file over every mark ever made here.
+            console.warn(`[Media Libraries] Could not read ${path}, keeping it as ${path}.broken: ${e}`);
+            GLib.rename(path, `${path}.broken`);
         }
     }
 
+    // Written whole, in the background: this runs in the compositor, and a
+    // synchronous write of an existing file syncs the disk first. One write
+    // at a time; a mark made during one is written after it. Not
+    // cancellable, so what is known at a lock goes down.
     _saveLocal() {
-        const path = localPath();
-        try {
-            GLib.mkdir_with_parents(GLib.path_get_dirname(path), 0o700);
-            GLib.file_set_contents(path, serialize(this._entries));
-        } catch (e) {
-            console.error(`[Media Libraries] Could not write ${path}: ${e}`);
+        if (this._savingLocal) {
+            this._saveAgain = true;
+            return;
         }
+        const path = localPath();
+        GLib.mkdir_with_parents(GLib.path_get_dirname(path), 0o700);
+        const file = Gio.File.new_for_path(path);
+        const bytes = new GLib.Bytes(new TextEncoder().encode(serialize(this._entries)));
+        this._savingLocal = true;
+        file.replace_contents_bytes_async(bytes, null, false, Gio.FileCreateFlags.NONE, null,
+            (_file, result) => {
+                this._savingLocal = false;
+                try {
+                    file.replace_contents_finish(result);
+                } catch (e) {
+                    console.error(`[Media Libraries] Could not write ${path}: ${e.message}`);
+                }
+                if (this._saveAgain) {
+                    this._saveAgain = false;
+                    this._saveLocal();
+                }
+            });
     }
 
     // ------------------------------------------------------------------
@@ -350,15 +393,16 @@ export class Tracker extends Signals.EventEmitter {
         this._writing.add(folder);
         const file = Gio.File.new_for_path(GLib.build_filenamev([folder, FOLDER_FILE]));
         const bytes = new GLib.Bytes(new TextEncoder().encode(contents));
+        // Not cancellable: the last thing a lock does is keep where playback
+        // is, and a replace cancelled after it has opened leaves its
+        // temporary file beside the media.
         file.replace_contents_bytes_async(bytes, null, false, Gio.FileCreateFlags.NONE,
-            this._cancellable, (_file, result) => {
+            null, (_file, result) => {
                 this._writing.delete(folder);
                 try {
                     file.replace_contents_finish(result);
                     this._written.set(folder, contents);
                 } catch (e) {
-                    if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        return;
                     console.warn(`[Media Libraries] Could not write ${file.get_path()}: ${e.message}`);
                 }
                 if (this._again.delete(folder) && this._mode === 'source')

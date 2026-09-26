@@ -132,6 +132,9 @@ class MediaLibrariesDetailDialog extends MediaPanel {
     }
 
     _closeSequence() {
+        // Closed before it had finished opening: the column and the rows
+        // still to come are not built into a panel that is fading out.
+        this._detail.cancelDeferred();
         this._narrowAndZoomOut();
     }
 

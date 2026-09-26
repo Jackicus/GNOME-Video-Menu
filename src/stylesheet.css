@@ -56,22 +56,26 @@
 
 /* ---- Tabs -------------------------------------------------------------- */
 
-/* The switch between the libraries: the shape of the shell's own
- * screenshot/screencast switch (.screenshot-ui-shot-cast-container and
- * -button, _screenshot.scss), with words in it, the lit tab in the accent and
- * the pill on the shell's dark neutral so it reads over any wallpaper. */
+/* The switch between the libraries in the header, and between a show's
+ * seasons in the detail pane — one pill, one set of rules: the shape of the
+ * shell's own screenshot/screencast switch (.screenshot-ui-shot-cast-container
+ * and -button, _screenshot.scss), with words in it, the lit tab in the accent
+ * and the pill on the shell's dark neutral so it reads over any wallpaper.
+ * The season tabs are the theme's `.button` underneath, which these override
+ * where they say so. */
 .ml-tabs {
     background-color: rgba(34, 34, 38, 0.7);
     border: 1px solid rgba(250, 250, 251, 0.08);
     border-radius: 9999px;
+    margin-top: 4px;
     padding: 3px;
-    spacing: 3px;
+    spacing: 6px;
 }
 
 .ml-tab {
     border-radius: 9999px;
-    padding: 6px 18px;
-    font-size: 1.09em;
+    padding: 6px 16px;
+    font-size: 0.886em;
     font-weight: bold;
     color: rgba(250, 250, 251, 0.75);
     transition-duration: 120ms;
@@ -222,7 +226,6 @@
 .ml-summary {
     font-size: 0.95em;
     color: rgba(250, 250, 251, 0.78);
-    line-height: 1.5;
 }
 
 /* Primary and secondary pill buttons. Both are the shell's own `.button` —
@@ -244,19 +247,6 @@
  * colour is the one that shows against it. */
 .ml-action.default:focus {
     box-shadow: inset 0 0 0 2px -st-accent-fg-color !important;
-}
-
-/* Season / group tabs. */
-.ml-tabs {
-    margin-top: 4px;
-    spacing: 6px;
-}
-
-/* The theme's button; `:checked` marks the open tab. */
-.ml-tab {
-    border-radius: 9999px;
-    padding: 6px 16px;
-    font-size: 0.886em;
 }
 
 .ml-group-heading {

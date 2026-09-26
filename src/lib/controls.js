@@ -114,11 +114,18 @@ export class Controls {
     // ------------------------------------------------------------------
     // Bindings
     // ------------------------------------------------------------------
+    // A binding is the setting's, which the preferences refuse the keys an
+    // action is replayed as (actions.js NATIVE_KEYS) — but a setting written
+    // by hand is not, and an unmodified Escape bound to Back would replay
+    // itself back here without end. So the replayed keys are never bindings.
     _readKeys() {
         this._keys.clear();
+        const replayed = new Set(ACTIONS.filter(a => a.stands).map(a => Clutter[`KEY_${a.stands}`]));
         for (const action of ACTIONS) {
-            for (const [keyval, mods] of this._settings.get_value(`keys-${action.key}`).deep_unpack())
-                this._keys.set(keyId(keyval, mods), action);
+            for (const [keyval, mods] of this._settings.get_value(`keys-${action.key}`).deep_unpack()) {
+                if (!(mods === 0 && replayed.has(keyval)))
+                    this._keys.set(keyId(keyval, mods), action);
+            }
         }
     }
 

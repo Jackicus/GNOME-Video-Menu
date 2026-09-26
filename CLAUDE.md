@@ -65,7 +65,10 @@ is an edit there plus the schema keys; `library.js` also exports `LIBRARY`,
 the one thing that is not per-section — the button's own title ("Videos") and
 its icon path — read by `libraryButton.js` and nowhere else.
 
-Runtime data: `~/.cache/media-libraries/` — `library.json`, `posters/`, `backdrops/`,
+Runtime data: `~/.cache/media-libraries/` (under `$XDG_CACHE_HOME` when that
+is set — the JS asks `GLib.get_user_cache_dir()` and `metadata.py` resolves
+it the same way, which is what lets the nested shell's `--demo` point both
+sides at a cache of its own) — `library.json`, `posters/`, `backdrops/`,
 `metadata/` (one `index.json` of every cached record; the per-item files the
 first release wrote are still read once and folded in). The JS never
 scrapes; it only reads `library.json` that Python wrote.
@@ -108,7 +111,15 @@ library still names. The JS treats an art path outside the cache as missing.
    it into the list when they open, and the scanner reads it only while the
    list is empty. Neither section has a default folder — the Videos folder
    cannot serve both TV Shows and Films — so both are off until pointed at one
-   (prefs, `dev.sh scan` and the scanner all follow this).
+   (prefs, `dev.sh scan` and the scanner all follow this). A section that is
+   switched on and named in the run but has no folder is written out
+   *empty*, so removing a section's last folder clears it at the next scan;
+   one whose folders are all out of reach (a share offline, a drive not
+   plugged in) keeps what the last scan found, artwork included, rather than
+   being emptied and its cache pruned. Each section's folders are kept out of
+   the other's walk whichever of them a run scans — the Films page's own
+   Rescan scans films alone, and a TV folder inside the films folder must
+   not be read as a film then.
    An item's `scan_sig` includes its folder's path as well as the tree's
    mtimes: what a match reuses is the file list, every entry of it an absolute
    path, so a drive renamed under an untouched tree must read as changed or

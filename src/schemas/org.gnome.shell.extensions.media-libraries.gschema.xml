@@ -215,7 +215,7 @@
             <description>Navigate a library with a game controller, through libmanette. Only acted on while a library is on screen, except Home, which opens it when no window has the keyboard.</description>
         </key>
 
-        <!-- Appearance: one set of style settings, shared by all three views -->
+        <!-- Appearance: one set of style settings, shared by every place a library or a pane is drawn -->
         <key name="columns" type="i">
             <range min="4" max="10"/>
             <default>6</default>

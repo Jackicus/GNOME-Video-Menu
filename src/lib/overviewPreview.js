@@ -25,6 +25,34 @@ import {InjectionManager} from 'resource:///org/gnome/shell/extensions/extension
 import GObject from 'gi://GObject';
 import Clutter from 'gi://Clutter';
 
+// The slide is joined through one wrap of the shell's workspace animation,
+// put in for the life of the extension rather than per build: the wrap goes
+// on a shared prototype, where another extension's may sit over or under
+// it, and a rebuild — every rescan — that took it out and put it back would
+// take a later one's with it. It hands the slide to whichever OverviewPreview
+// is current.
+let current = null;
+const injections = new InjectionManager();
+
+export function installSlideHook() {
+    const animation = Main.wm._workspaceAnimation;
+    if (!animation?._prepareWorkspaceSwitch)
+        return;
+    injections.overrideMethod(Object.getPrototypeOf(animation), '_prepareWorkspaceSwitch',
+        original => function (...args) {
+            // It returns early, touching nothing, when a slide is already
+            // under way (a swipe picked up mid-flight).
+            const fresh = !this._switchData;
+            original.apply(this, args);
+            if (fresh && this._switchData)
+                current?._joinSlide(this._switchData);
+        });
+}
+
+export function removeSlideHook() {
+    injections.clear();
+}
+
 // The preview's background group stands for the whole monitor, but it is
 // allocated at whatever size the overview has animated the workspace to — and
 // stretched independently in x and y while that animation runs, exactly as the
@@ -79,10 +107,10 @@ export class OverviewPreview {
         this._bounds = bounds;
         this._clones = [];
         this._attached = false;
-        this._injections = new InjectionManager();
     }
 
     enable() {
+        current = this;
         // 'showing' is early enough: the previews exist before the overview
         // animates in, so the clones are there for the first frame rather
         // than appearing once it has settled.
@@ -94,24 +122,11 @@ export class OverviewPreview {
         // these under an overview that is already open.
         if (Main.overview.visible)
             this._attach();
-
-        const animation = Main.wm._workspaceAnimation;
-        if (animation?._prepareWorkspaceSwitch) {
-            const self = this;
-            this._injections.overrideMethod(Object.getPrototypeOf(animation), '_prepareWorkspaceSwitch',
-                original => function (...args) {
-                    // It returns early, touching nothing, when a slide is
-                    // already under way (a swipe picked up mid-flight).
-                    const fresh = !this._switchData;
-                    original.apply(this, args);
-                    if (fresh && this._switchData)
-                        self._joinSlide(this._switchData);
-                });
-        }
     }
 
     destroy() {
-        this._injections.clear();
+        if (current === this)
+            current = null;
         Main.overview.disconnectObject(this);
         this._detach();
     }

@@ -56,20 +56,25 @@ const SOURCES = {
 //
 // A section looks in a list of folders, <prefix>-folders, added and removed
 // on its Files group as sources are on the sources group.
+const VIDEO_OPENER = {
+    title: 'Video player command',
+    hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.',
+};
+
 const PAGES = {
     tv: {
         lower: 'TV shows', noun: 'shows',
         layout: 'One folder per show. Seasons can be subfolders ("Season 2") or SxxEyy in the file names.',
         online: 'Where artwork, synopsis, genres and ratings come from.',
         sources: ['tvmaze', 'tmdb', 'wikipedia'],
-        opener: {title: 'Video player command', hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.'},
+        opener: VIDEO_OPENER,
     },
     films: {
         lower: 'films', noun: 'films',
         layout: 'One folder or file per film, named "Title (Year)". The largest video in a folder is the feature.',
         online: 'Where posters, synopses, genres and ratings come from.',
         sources: ['tmdb', 'wikipedia'],
-        opener: {title: 'Video player command', hint: 'The default plays in VLC full screen and closes it at the end. For example "mpv --fullscreen" instead; watched marks and resuming need a player that shows up in the media controls, which for mpv means mpv-mpris.'},
+        opener: VIDEO_OPENER,
     },
 };
 
@@ -116,6 +121,11 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             window,
             settings,
             counts: this._readCounts(),
+            // Every row that shows a count of the library, refreshed together
+            // when any Rescan finishes: a section's own row after "Rescan
+            // everything" as much as after its own button.
+            refreshCounts: [],
+            padMonitor: null,
         };
         this._migrateFolders(settings);
 
@@ -123,6 +133,14 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         window.add(this._controlsPage(state));
         for (const section of SECTIONS)
             window.add(this._sectionPage(state, section));
+
+        // The Extensions app outlives its windows; a controller monitor left
+        // to the garbage collector keeps its device files open until then.
+        window.connect('close-request', () => {
+            state.padMonitor?.run_dispose();
+            state.padMonitor = null;
+            return false;
+        });
     }
 
     // ------------------------------------------------------------------
@@ -432,12 +450,11 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             title: 'Rescan everything',
             subtitle: this._lastScanText(),
         });
-        const button = this._scanButton(state, SECTIONS.filter(s => settings.get_boolean(`${s.prefix}-enabled`)), () => {
-            rescan.set_subtitle(this._lastScanText());
-        });
-        rescan.add_suffix(button);
+        // Every section: which of them are switched on is read when the
+        // button is pressed, not when the page was built.
+        rescan.add_suffix(this._scanButton(state, SECTIONS));
+        state.refreshCounts.push(() => rescan.set_subtitle(this._lastScanText()));
         library.add(rescan);
-        state.rescanAll = {row: rescan, button};
 
         return page;
     }
@@ -495,10 +512,14 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                     return true;
                 }
                 const shown = keyLabel(keyval, mods);
-                const typing = !(mods & ~Gdk.ModifierType.SHIFT_MASK) &&
-                    !(keyval >= Gdk.KEY_F1 && keyval <= Gdk.KEY_F35) && keyval < 0x1008ff00;
-                if (typing)
-                    return `${shown} types a character. Add Ctrl, Alt or Super to it, or use a function or media key.`;
+                // On its own, only a function key or one of the XF86 range —
+                // the media keys, and everything a remote sends, which sits
+                // at 0x10081xxx below XF86HomePage's 0x1008ffxx — is a
+                // shortcut; anything else would be taken from every app.
+                const bare = !(mods & ~Gdk.ModifierType.SHIFT_MASK) &&
+                    !(keyval >= Gdk.KEY_F1 && keyval <= Gdk.KEY_F35) && (keyval >>> 16) !== 0x1008;
+                if (bare)
+                    return `${shown} on its own would be taken from every window. Add Ctrl, Alt or Super to it, or use a function or media key.`;
                 const accel = Gtk.accelerator_name(keyval, mods);
                 const clash = shortcutClash(settings, accel, SHORTCUT_KEY);
                 if (clash)
@@ -776,6 +797,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             for (const [object, id] of handlers)
                 object.disconnect(id);
             handlers.length = 0;
+            monitor.run_dispose();
         });
     }
 
@@ -840,10 +862,8 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             title: 'Indexed',
             subtitle: this._countText(state.counts, section),
         });
-        const button = this._scanButton(state, [section], () => {
-            status.set_subtitle(this._countText(state.counts, section));
-        });
-        status.add_suffix(button);
+        status.add_suffix(this._scanButton(state, [section]));
+        state.refreshCounts.push(() => status.set_subtitle(this._countText(state.counts, section)));
         library.add(status);
 
         return page;
@@ -1087,8 +1107,11 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
             sync: () => {
                 const current = this._credential(settings, slot);
                 // Never over an entry being typed into: the edit in front of
-                // the user beats the one that landed from elsewhere.
-                if (!value.has_focus && value.get_text() !== current)
+                // the user beats the one that landed from elsewhere. The
+                // keyboard is in the row's own text widget, so it is the
+                // row's focus-within that says so, not its focus.
+                const typing = value.get_state_flags() & Gtk.StateFlags.FOCUS_WITHIN;
+                if (!typing && value.get_text() !== current)
                     value.set_text(current);
                 sync();
             },
@@ -1225,11 +1248,6 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
         }
     }
 
-    // The folders the scanner will walk for a section.
-    _foldersFor(settings, section) {
-        return settings.get_strv(`${section.prefix}-folders`);
-    }
-
     // Find out whether `path` is there and mark the row if not. The answer is
     // never waited for: a folder on a share or an automount that has idled
     // out takes as long to stat as the share takes to come back, and asked
@@ -1305,7 +1323,7 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
     // out of GSettings itself, so nothing here has to turn a setting into a
     // flag or hand it a key — `--only` just narrows it to the section whose
     // page this button is on.
-    _scanButton(state, sections, onDone) {
+    _scanButton(state, sections) {
         const content = new Adw.ButtonContent({label: 'Rescan', icon_name: 'view-refresh-symbolic'});
         const button = new Gtk.Button({child: content, valign: Gtk.Align.CENTER, css_classes: ['flat']});
 
@@ -1315,8 +1333,11 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                 content.set_label('Nothing enabled');
                 return;
             }
-            // A section needs a folder before it is worth running.
-            const ready = enabled.filter(s => this._foldersFor(state.settings, s).length);
+            // A section needs a folder before it is worth running — unless
+            // it has items from a folder it no longer names, which the
+            // scanner clears.
+            const ready = enabled.filter(s =>
+                state.settings.get_strv(`${s.prefix}-folders`).length || state.counts[s.key]);
             if (!ready.length) {
                 content.set_label('No folder set');
                 return;
@@ -1350,9 +1371,8 @@ export default class MediaLibrariesPreferences extends ExtensionPreferences {
                     content.set_icon_name(failed ? 'dialog-warning-symbolic' : 'view-refresh-symbolic');
                     content.set_label(failed ? 'Failed — see logs' : 'Rescan');
                     state.counts = this._readCounts();
-                    onDone();
-                    // Every page shows counts; refresh the ones we know about.
-                    state.rescanAll?.row.set_subtitle(this._lastScanText());
+                    for (const refresh of state.refreshCounts)
+                        refresh();
                 });
             } catch (e) {
                 console.error(`[Media Libraries] Could not launch scanner: ${e.message}`);

@@ -101,38 +101,60 @@ def library_lock(out):
 # --------------------------------------------------------------------------
 # Reading the preferences
 # --------------------------------------------------------------------------
-def _setting(key):
-    """One GSettings value as a plain string, or None if it cannot be read."""
-    argv = ["gsettings"]
-    if os.path.exists(os.path.join(SCHEMA_DIR, "gschemas.compiled")):
-        argv += ["--schemadir", SCHEMA_DIR]
-    argv += ["get", SCHEMA, key]
-    try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=10, check=True).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out[1:-1] if len(out) >= 2 and out[0] == out[-1] == "'" else out
+_settings_cache = None
+
+
+def _settings():
+    """Every key of the schema as gsettings prints it, read in one go rather
+    than a process per key; None if they cannot be read at all."""
+    global _settings_cache
+    if _settings_cache is None:
+        argv = ["gsettings"]
+        if os.path.exists(os.path.join(SCHEMA_DIR, "gschemas.compiled")):
+            argv += ["--schemadir", SCHEMA_DIR]
+        argv += ["list-recursively", SCHEMA]
+        try:
+            out = subprocess.run(argv, capture_output=True, text=True, timeout=10, check=True).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        _settings_cache = {}
+        for line in out.splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) == 3 and parts[0] == SCHEMA:
+                _settings_cache[parts[1]] = parts[2].strip()
+    return _settings_cache
 
 
 def _setting_value(key):
-    """One GSettings value as a Python object, for the keys that are not plain
-    strings — `credentials` (a{ss}) and each section's source list (as).
+    """One GSettings value as a Python object: a string, a bool, or for
+    `credentials` (a{ss}) and each section's source list (as) a container.
 
     gsettings prints GVariants in a syntax that is also valid Python literal
-    syntax, optionally behind an `@type` prefix for an empty container, so
+    syntax — strings in either kind of quote with backslash escapes, so a
+    folder called "Jack's Films" reads back as written — optionally behind an
+    `@type` prefix for an empty container, and `true`/`false` for a bool. So
     ast.literal_eval reads them without pulling gi into the backend. It only
     ever evaluates literals, so a credential holding anything at all is still
     only ever data.
     """
-    raw = _setting(key)
+    values = _settings()
+    raw = values.get(key) if values is not None else None
     if raw is None:
         return None
     if raw.startswith("@"):
         raw = raw.split(" ", 1)[1] if " " in raw else ""
+    if raw in ("true", "false"):
+        return raw == "true"
     try:
         return ast.literal_eval(raw)
     except (ValueError, SyntaxError):
         return None
+
+
+def _setting(key):
+    """One GSettings value as a plain string, or None if it cannot be read."""
+    value = _setting_value(key)
+    return value if isinstance(value, str) else None
 
 
 def section_folders(prefix):
@@ -164,13 +186,20 @@ def apply_settings(args, parser):
 
     only = set(args.only or SECTION_SETTINGS)
     for key, prefix in SECTION_SETTINGS.items():
-        if key not in only or _setting(f"{prefix}-enabled") != "true":
-            continue
         folders = section_folders(prefix)
-        if folders:
-            setattr(args, f"{key}_path", folders)
-        else:
-            print(f"{key}: no folder set, skipping")
+        # Every section's folders are kept out of the other's walk whether
+        # or not it is being scanned now: a TV folder inside the films folder
+        # was read as one film with every episode as a file when the Films
+        # page's own Rescan, which scans films alone, ran.
+        args.exclude[key] = folders
+        if key not in only or _setting_value(f"{prefix}-enabled") is not True:
+            continue
+        # An empty list, not nothing: a section switched on and pointed at
+        # no folder is written out empty, so removing a section's last
+        # folder takes its items off the desktop at the next scan.
+        setattr(args, f"{key}_path", folders)
+        if not folders:
+            print(f"{key}: no folder set, clearing it")
 
     # Sources, the switch that gates them and the keys they need are all per
     # section now, so they are read per section too. A section left out of
@@ -182,7 +211,7 @@ def apply_settings(args, parser):
             listed = _setting_value(f"{prefix}-sources")
             if isinstance(listed, list):
                 args.sources[kind] = [str(e) for e in listed]
-        if _setting(f"{prefix}-online") == "false":
+        if _setting_value(f"{prefix}-online") is False:
             args.offline_kinds.add(kind)
 
     # Read here rather than taken from the environment, so the preferences and
@@ -262,11 +291,16 @@ def main():
                         help="Re-read every folder instead of reusing the entries of unchanged ones")
     parser.add_argument("--out", default=LIBRARY_PATH)
     args = parser.parse_args()
+    # A name the filesystem could not decode is printed escaped rather than
+    # aborting the scan from inside a worker.
+    sys.stdout.reconfigure(errors="backslashreplace")
 
     # Filled either from --source or, below, from the preferences.
     args.sources = {}
     args.offline_kinds = set()
     args.credentials = {}
+    # section -> its folders, kept out of the other section's walk.
+    args.exclude = {}
     for spec in args.source:
         kind, _, listed = spec.partition("=")
         kind = kind.strip()
@@ -283,27 +317,35 @@ def main():
     elif args.only:
         parser.error("--only is only meaningful with --from-settings")
 
-    requested = {
-        "tv": args.tv_path or [],
-        "films": args.films_path or [],
-    }
-    if not any(requested.values()):
+    # A section's folders, expanded once; None for a section this run leaves
+    # as it is, [] for one it clears.
+    def expand(folders):
+        return None if folders is None else [os.path.expanduser(p) for p in folders]
+
+    requested = {"tv": expand(args.tv_path), "films": expand(args.films_path)}
+    if all(v is None for v in requested.values()):
         if args.from_settings:
             parser.error(
-                "nothing to scan: no section is both switched on and pointed at "
-                "a folder. Set one in the preferences.")
+                "nothing to scan: no section is switched on. Set one in the preferences.")
         parser.error("give at least one of --tv-path, --films-path, --from-settings")
-
-    # Keys come from the preferences, or from the environment
-    # (MEDIA_LIBRARIES_TMDB_KEY) for a standalone run. Never argv.
-    meta = MetadataService(
-        online=not args.offline,
-        sources=args.sources,
-        credentials=args.credentials,
-        offline_kinds=args.offline_kinds,
-    )
+    exclude = {key: expand(folders) or [] for key, folders in args.exclude.items()}
+    for key, folders in requested.items():
+        if folders:
+            exclude[key] = list(dict.fromkeys(exclude.get(key, []) + folders))
 
     with library_lock(args.out):
+        # Under the lock, since it reads the record index another scan may be
+        # writing: loaded before, a flush of this run's copy would put the
+        # records that scan added back as they were.
+        #
+        # Keys come from the preferences, or from the environment
+        # (MEDIA_LIBRARIES_TMDB_KEY) for a standalone run. Never argv.
+        meta = MetadataService(
+            online=not args.offline,
+            sources=args.sources,
+            credentials=args.credentials,
+            offline_kinds=args.offline_kinds,
+        )
         # Every artwork path the shell is given has to be a file in the cache,
         # no larger than the desktop draws it; these three keep that true for
         # what earlier releases left behind as well as for what is scanned now.
@@ -319,36 +361,44 @@ def main():
                 if isinstance(item, dict) and item.get("id")
             }
 
-        tv_folders = [os.path.expanduser(p) for p in requested["tv"]]
-        for key, raw_folders in requested.items():
-            if not raw_folders:
+        for key, paths in requested.items():
+            if paths is None:
                 continue
             t0 = time.time()
             previous = previous_items(key)
             items = []
             missing = []
-            for raw in raw_folders:
-                path = os.path.expanduser(raw)
+            for path in paths:
                 if not os.path.isdir(path):
                     print(f"{key}: {path} is not a folder, skipping it")
                     missing.append(path)
                     continue
                 if key == "tv":
-                    found = scan_tv(path, previous)
+                    found = scan_tv(path, previous, exclude=exclude.get("films", ()))
                 else:
-                    found = scan_films(path, exclude=tv_folders, previous=previous)
+                    found = scan_films(path, exclude=exclude.get("tv", ()), previous=previous)
                 items.extend(found)
+            scanned[key] = {"paths": paths, "count": len(items)}
+            if missing:
+                scanned[key]["missing"] = missing
+            # Every folder out of reach — a share that is offline, a drive
+            # not plugged in — is not an empty library: what the last scan
+            # found is kept, and the artwork it names with it, rather than
+            # written out empty and pruned, to be fetched all over again
+            # when the share comes back.
+            if paths and len(missing) == len(paths) and sections.get(key):
+                print(f"{key}: none of its folders can be reached; keeping the last scan")
+                scanned[key]["count"] = len(sections[key])
+                continue
             unique_ids(items)
             enrich_all(meta, items)
 
             sections[key] = items
-            paths = [os.path.expanduser(p) for p in raw_folders]
-            scanned[key] = {"paths": paths, "count": len(items)}
-            if missing:
-                scanned[key]["missing"] = missing
+            scanned[key]["count"] = len(items)
             reused = unchanged(items, previous)
             note = f", {reused} unchanged" if reused else ""
-            print(f"{key}: {len(items)} items from {', '.join(paths)} ({time.time() - t0:.1f}s{note})")
+            where = ", ".join(paths) or "no folder"
+            print(f"{key}: {len(items)} items from {where} ({time.time() - t0:.1f}s{note})")
 
         meta.flush()
         moved = localise_art(sections)

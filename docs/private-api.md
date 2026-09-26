@@ -174,7 +174,11 @@ does not happen on stock GNOME) not at all.
 `_attach()` try/catch. `panels-created`, Dash to Panel's own signal, and
 `extension-state-changed` on `Main.extensionManager` are what re-run `_attach`
 when Dash to Panel appears, is toggled, or rebuilds its panels (a
-`monitors-changed`, which no extension-state signal reflects).
+`monitors-changed`, which no extension-state signal reflects) — and only
+then: `_reattach` compares `global.dashToPanel.panels[0]` with the panel the
+button is in and checks the button still has a parent, since
+`extension-state-changed` fires for every extension, and a button rebuilt
+for nothing takes the modal library's panel (which zooms out of it) down.
 
 ## The overview's app-grid slot (mediaMenu.js)
 
@@ -626,9 +630,12 @@ clone above the wallpaper and below any desktop-window clones the slide adds
 afterwards, on every checked version. `InjectionManager` (imported from the
 shell's own `resource:///.../extensions/extension.js`) is public extension API
 — it is what makes the `_prepareWorkspaceSwitch` override chain-safely with
-whatever else has already wrapped it, and `destroy()`'s `this._injections.clear()`
-puts the original back, or leaves another extension's wrap under it alone if
-that one wrapped after and is still there.
+whatever else has already wrapped it. The wrap is installed once per enable
+(`installSlideHook`, from `app.js`) and removed once at disable
+(`removeSlideHook`), not per build: it sits on a shared prototype, and a
+rebuild — every rescan — that took it out and put it back would drop a wrap
+another extension added over it in between. It hands each slide to the
+`OverviewPreview` that is current.
 
 ## Chain-safe wraps, for coexisting with Games Menu
 

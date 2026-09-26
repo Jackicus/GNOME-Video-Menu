@@ -35,7 +35,8 @@ const HERO_RESERVED = 2 * 52 + 28;         // two action buttons and the gaps
 const HERO_MAX_WIDTH_FRACTION = 0.34;      // of the pane width
 // The hero's floor on a small work area — see `_heroSize`.
 const HERO_MIN = 132;
-// 14px type at the stylesheet's line-height: 1.5.
+// About one line of the summary's type (0.95em of the stage font) at Pango's
+// own line height; St has no line-height property to set it by.
 const SUMMARY_LINE = 21;
 const SUMMARY_LINES = 5;
 // A season runs to a couple of dozen episodes, a film's files to a handful.
@@ -90,7 +91,7 @@ export class DetailView {
     }
 
     destroy() {
-        this._cancelDeferred();
+        this.cancelDeferred();
         this.actor.destroy();
     }
 
@@ -99,7 +100,9 @@ export class DetailView {
         this._height = height;
     }
 
-    _cancelDeferred() {
+    // Whatever is still to be built — the second column on the next idle,
+    // the list once the pane has landed — is not: for a pane on its way out.
+    cancelDeferred() {
         if (this._deferredList) {
             GLib.source_remove(this._deferredList);
             this._deferredList = 0;
@@ -182,7 +185,7 @@ export class DetailView {
     // free, 'held' when whatever is opening the pane will call `revealMain()`
     // itself (the popup does, as it starts to widen onto it).
     populate(item, section, {mainColumn = 'auto'} = {}) {
-        this._cancelDeferred();
+        this.cancelDeferred();
         this.actor.destroy_all_children();
         this.item = item;
         this._section = section;
@@ -236,8 +239,11 @@ export class DetailView {
         this._deferredMain = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
             this._deferredMain = 0;
             this._addMain();
+            // The list waits out the flight that brought the pane in, which
+            // is the slow one; the popup's own call times the list to its
+            // widen instead.
             if (mainColumn === 'auto')
-                this.revealMain();
+                this.revealMain({settle: Duration.SLOW});
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -259,11 +265,12 @@ export class DetailView {
 
     // Fade the second column in — as the popup's panel opens out onto it, or
     // on its own once built when the pane is already the width it will be.
-    // The list under it follows the fade rather than joining it: see _fillList.
-    revealMain({delay = 0} = {}) {
+    // The list under it follows the fade rather than joining it, and comes
+    // once whatever is moving the pane has landed (`settle`): see _fillList.
+    revealMain({delay = 0, settle = Duration.NORMAL} = {}) {
         this._addMain();
         this._main?.ease({opacity: 255, delay, duration: Duration.NORMAL, mode: Ease.OUT});
-        this._fillList(delay + Duration.NORMAL);
+        this._fillList(delay + settle);
     }
 
     // The first screenful of the group list, once the pane has stopped moving.

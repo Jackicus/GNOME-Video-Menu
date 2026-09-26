@@ -208,20 +208,34 @@ function episodeTitle(raw) {
     return stripped || raw;
 }
 
+// The group an episode is listed under: the subfolder it is in — a "Season
+// N" folder by its number, any other (Extras, OVA) by its name — or, for one
+// beside the season folders, the season its filename's SxxEyy names.
+function groupOf(ep) {
+    const group = ep.group;
+    if (typeof group === 'string' && group) {
+        if (!/^season\b/i.test(group))
+            return group;
+        const n = seasonNumberOf(group);
+        if (n !== null)
+            return `Season ${n}`;
+    } else if (group === undefined) {
+        // An episode list a release before `group` was written left behind,
+        // which named a subfolder in the title instead: "[Extras] OP01".
+        const title = ep.title || '';
+        if (title.startsWith('[') && title.includes(']'))
+            return title.slice(1, title.indexOf(']')).trim();
+    }
+    const m = (ep.filename || '').match(/S(\d+)/i);
+    return m ? `Season ${parseInt(m[1], 10)}` : 'Season 1';
+}
+
 function normalizeShow(show, base) {
     const episodes = Array.isArray(show.episodes) ? show.episodes : [];
     const bySeason = new Map();
 
     for (const ep of episodes) {
-        let season = 'Season 1';
-        const title = ep.title || '';
-        if (title.startsWith('[') && title.includes(']')) {
-            season = title.slice(1, title.indexOf(']')).trim();
-        } else {
-            const m = (ep.filename || '').match(/S(\d+)/i);
-            if (m)
-                season = `Season ${parseInt(m[1], 10)}`;
-        }
+        const season = groupOf(ep);
         if (!bySeason.has(season))
             bySeason.set(season, []);
         bySeason.get(season).push(ep);

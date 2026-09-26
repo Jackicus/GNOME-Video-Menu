@@ -32,6 +32,8 @@ path outside the cache is a path into the media folder — which may be a networ
 mount where a single read stalls the whole desktop for seconds.
 """
 
+import contextlib
+import hashlib
 import html
 import json
 import os
@@ -43,7 +45,17 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-CACHE_DIR = os.path.expanduser("~/.cache/media-libraries")
+
+def _user_cache_dir():
+    """What GLib.get_user_cache_dir() answers in the extension: XDG_CACHE_HOME
+    when it is set to an absolute path, else ~/.cache. The two sides have to
+    agree, or a scan lands where the shell never looks — the nested shell of
+    scripts/nested.sh points the extension at a cache of its own this way."""
+    home = os.environ.get("XDG_CACHE_HOME", "")
+    return home if os.path.isabs(home) else os.path.expanduser("~/.cache")
+
+
+CACHE_DIR = os.path.join(_user_cache_dir(), "media-libraries")
 POSTER_CACHE_DIR = os.path.join(CACHE_DIR, "posters")
 BACKDROP_CACHE_DIR = os.path.join(CACHE_DIR, "backdrops")
 METADATA_CACHE_DIR = os.path.join(CACHE_DIR, "metadata")
@@ -56,6 +68,13 @@ METADATA_INDEX = os.path.join(METADATA_CACHE_DIR, "index.json")
 # interrupted loses at most this many freshly fetched records (never artwork,
 # which is on disk the moment it lands).
 INDEX_FLUSH_EVERY = 25
+# A title no source had artwork for is not asked about again for this long:
+# a home video would otherwise cost a request per source on every scan.
+MISS_RETRY_SECONDS = 7 * 24 * 3600
+# Transport failures in a row (no route, a firewall dropping packets, a
+# timeout each) before the rest of the run is taken offline; one success in
+# between starts the count over.
+OFFLINE_AFTER_FAILURES = 6
 USER_AGENT = "MediaLibraries/2.0"
 
 # The largest the desktop ever draws each kind of artwork, doubled where a
@@ -126,8 +145,14 @@ _LOOKUPS = {
     ("film", "wikipedia"): lambda svc, item, entry: svc._wikipedia(item, "film"),
 }
 
-for _d in (POSTER_CACHE_DIR, BACKDROP_CACHE_DIR, METADATA_CACHE_DIR):
-    os.makedirs(_d, exist_ok=True)
+def ensure_cache_dirs():
+    for directory in (POSTER_CACHE_DIR, BACKDROP_CACHE_DIR, METADATA_CACHE_DIR):
+        os.makedirs(directory, exist_ok=True)
+
+
+def path_key(path):
+    """A short stable name for a path, for files in the cache named after one."""
+    return hashlib.sha1(path.encode("utf-8", "surrogateescape")).hexdigest()[:20]
 
 
 # --------------------------------------------------------------------------
@@ -216,12 +241,19 @@ def fit_image(src, box, dest=None):
             else:
                 img.convert("RGB").save(tmp, "JPEG", quality=88)
         else:
-            if scale < 1.0:
-                pb = module.Pixbuf.new_from_file_at_scale(
-                    src, max(1, round(size[0] * scale)), max(1, round(size[1] * scale)), True)
-            else:
-                pb = module.Pixbuf.new_from_file(src)
+            # Loaded no larger than the box's long side either way, so a
+            # 90-degree orientation still has its long side whole, then
+            # oriented and fitted to the box as it now stands — sizing off
+            # the unrotated header put a rotated poster at two-thirds of it.
+            side = max(box)
+            pb = module.Pixbuf.new_from_file_at_scale(src, side, side, True) \
+                if scale < 1.0 else module.Pixbuf.new_from_file(src)
             pb = pb.apply_embedded_orientation() or pb
+            fit = min(1.0, box[0] / pb.get_width(), box[1] / pb.get_height())
+            if fit < 1.0:
+                pb = pb.scale_simple(max(1, round(pb.get_width() * fit)),
+                                     max(1, round(pb.get_height() * fit)),
+                                     module.InterpType.BILINEAR)
             if pb.get_has_alpha():
                 out = _png_name(out, dest)
                 pb.savev(tmp, "png", [], [])
@@ -264,8 +296,6 @@ def cache_local_art(path, kind="poster"):
     """
     if not path:
         return None
-    from media_scanner import path_key
-
     directory, box = (BACKDROP_CACHE_DIR, BACKDROP_BOX) if kind == "backdrop" else (POSTER_CACHE_DIR, POSTER_BOX)
     try:
         mtime = int(os.path.getmtime(path))
@@ -358,17 +388,42 @@ def prune_art(sections):
     return removed
 
 
+# Transport failures seen in a row, across the pool; see OFFLINE_AFTER_FAILURES.
+_failures = 0
+_failures_lock = threading.Lock()
+
+
 def _fetch(url, timeout):
-    """GET with a polite retry: Wikipedia answers bursts with 429."""
+    """GET with a polite retry: Wikipedia answers bursts with 429.
+
+    A failure to reach the server at all (as against an answer) is counted,
+    and after enough of them in a row the rest of the run is refused here
+    rather than paid for at a timeout per item: a thousand-item scan with the
+    network down took a quarter of an hour to fail otherwise."""
+    global _failures
+    if _failures >= OFFLINE_AFTER_FAILURES:
+        raise OSError("the network is unreachable, not asking")
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.read()
+                data = resp.read()
         except urllib.error.HTTPError as e:
             if e.code != 429 or attempt == 3:
                 raise
             time.sleep(1.5 * (attempt + 1))
+            continue
+        except (urllib.error.URLError, OSError):
+            with _failures_lock:
+                _failures += 1
+                tripped = _failures == OFFLINE_AFTER_FAILURES
+            if tripped:
+                print(f"No answer from the network {OFFLINE_AFTER_FAILURES} times running; "
+                      "finishing this scan offline.")
+            raise
+        with _failures_lock:
+            _failures = 0
+        return data
 
 
 def _get_json(url, timeout=6):
@@ -383,10 +438,25 @@ def _download(url, dest, box, timeout=10):
     the shrink after the download is the guarantee rather than the fallback.
     """
     data = _fetch(url, timeout)
-    with open(dest, "wb") as f:
+    tmp = f"{dest}.download"
+    with open(tmp, "wb") as f:
         f.write(data)
-    fit_image(dest, box)
+    # Fitted under the temporary name, then put in place in one move: the
+    # shell may be drawing the old file, and a body that is not an image at
+    # all (an error page) must not become the poster, or it would be kept —
+    # it exists — and drawn as nothing, not even the placeholder.
+    if fit_image(tmp, box) is None:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise ValueError("not an image that can be scaled")
+    os.replace(tmp, dest)
     return dest
+
+
+def _fill(item, field, value):
+    """Set a fact a source found; nothing found leaves what is there."""
+    if value not in (None, "", []):
+        item[field] = value
 
 
 def _strip_html(text):
@@ -437,8 +507,13 @@ class MetadataService:
             "tmdb": (os.environ.get("MEDIA_LIBRARIES_TMDB_KEY") or "").strip(),
         }
         self._warned = set()          # source names already complained about
+        self._refused = set()         # entries whose key the source rejected
         self._lock = threading.Lock()
+        # Held for the whole of a flush: two due at once would write the same
+        # temporary file over each other.
+        self._flush_lock = threading.Lock()
         self._unflushed = 0
+        ensure_cache_dirs()
         self._index = self._load_index()
 
     # -- sources ---------------------------------------------------------
@@ -455,6 +530,8 @@ class MetadataService:
         default list rather than being an error."""
         if source_id(entry) not in CREDENTIAL_NEEDED:
             return True
+        if entry in self._refused:
+            return False
         if self.credential(entry):
             return True
         name = source_id(entry)
@@ -465,9 +542,14 @@ class MetadataService:
             print(f"{name}: no credential set, skipping it wherever it is listed.")
         return False
 
-    def sources_for(self, item):
-        """The sources that may answer for one item, in the order they are tried."""
-        return [e for e in self.sources.get(item["kind"], ()) if self._usable(e)]
+    def _refuse(self, entry, why):
+        """Give an entry up for the rest of the run — its key was rejected —
+        and say so once, rather than a failure line per item."""
+        with self._lock:
+            first = entry not in self._refused
+            self._refused.add(entry)
+        if first:
+            print(f"{entry}: {why}; skipping it for the rest of this scan.")
 
     def online_for(self, kind):
         """Whether this kind may go online at all: the run's --offline flag and
@@ -492,9 +574,12 @@ class MetadataService:
 
     def _paths(self, item):
         # TV shows keep the unprefixed names the first release used, so posters
-        # already on disk are not fetched twice.
+        # already on disk are not fetched twice. An id keeps every letter it
+        # has (media_scanner.slug) and the `~n` of a name found twice: folded
+        # to ASCII, "foo~2" was "foo2", and two titles that differ only in
+        # script were one record.
         prefix = "" if item["kind"] == "tv" else f"{item['kind']}_"
-        safe = re.sub(r"[^a-zA-Z0-9_]", "", f"{prefix}{item['id']}")
+        safe = re.sub(r"[^\w~]", "", f"{prefix}{item['id']}")
         return (
             safe,
             os.path.join(POSTER_CACHE_DIR, f"{safe}.jpg"),
@@ -521,8 +606,7 @@ class MetadataService:
             self._unflushed += 1
         return data
 
-    def _apply_cached(self, item, provider, key, poster_file, backdrop_file):
-        data = self._record(key)
+    def _apply_cached(self, item, provider, data, poster_file, backdrop_file):
         if data is None:
             return False
         # Older caches lack these; a changed provider means fetch afresh.
@@ -541,10 +625,23 @@ class MetadataService:
         item["provider"] = cached_by
         return True
 
-    def _save(self, item, provider, key):
-        record = {field: item.get(field) for field in CACHED_FIELDS}
-        record["genres"] = item.get("genres") or []
-        record["provider"] = provider
+    def _save(self, item, provider, key, asked, previous=None):
+        """Record what the sources came back with — or, with `provider` None,
+        that none of them had anything, keeping whatever facts an earlier
+        run cached. Either way, when no artwork arrived, the time and the
+        sources that were `asked` and answered go in too, so the same
+        question is not put to the same sources again for a while
+        (`_missed`). A source that could not be asked — the network down, a
+        key refused — is not among them, and is asked next time."""
+        if provider:
+            record = {field: item.get(field) for field in CACHED_FIELDS}
+            record["genres"] = item.get("genres") or []
+            record["provider"] = provider
+        else:
+            record = {k: v for k, v in (previous or {}).items() if k not in ("tried", "sources")}
+        if not item.get("poster_path"):
+            record["tried"] = time.time()
+            record["sources"] = sorted(asked)
         with self._lock:
             self._index[key] = record
             self._unflushed += 1
@@ -552,21 +649,30 @@ class MetadataService:
         if due:
             self.flush()
 
+    @staticmethod
+    def _missed(record, sources):
+        """Whether the same sources were asked for this lately and had no
+        artwork. A source added since, or the window passed, asks again."""
+        tried = (record or {}).get("tried")
+        return bool(tried) and time.time() - tried < MISS_RETRY_SECONDS and \
+            set(sources) <= set(record.get("sources") or ())
+
     def flush(self):
         """Write the record index out. Atomic, so a scan killed mid-write
         leaves the previous index rather than a truncated one."""
-        with self._lock:
-            if not self._unflushed:
-                return
-            snapshot = dict(self._index)
-            self._unflushed = 0
-        tmp = f"{METADATA_INDEX}.tmp"
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(snapshot, f, indent=1)
-            os.replace(tmp, METADATA_INDEX)
-        except OSError as e:
-            print(f"Could not write the metadata index: {e}")
+        with self._flush_lock:
+            with self._lock:
+                if not self._unflushed:
+                    return
+                snapshot = dict(self._index)
+                self._unflushed = 0
+            tmp = f"{METADATA_INDEX}.tmp"
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(snapshot, f, indent=1)
+                os.replace(tmp, METADATA_INDEX)
+            except OSError as e:
+                print(f"Could not write the metadata index: {e}")
 
     # -- public ----------------------------------------------------------
     def enrich(self, item):
@@ -579,19 +685,27 @@ class MetadataService:
         arranging richest-first.
         """
         kind = item["kind"]
-        entries = self.sources_for(item)
-        if not entries:
+        listed = self.sources.get(kind, ())
+        if not listed:
             return
         key, poster_file, backdrop_file = self._paths(item)
+        record = self._record(key)
         # A cached record was written by one source; any entry naming that
-        # source is still the answer, wherever it now sits in the order.
-        for entry in entries:
-            if self._apply_cached(item, source_id(entry), key, poster_file, backdrop_file):
+        # source is still the answer, wherever it now sits in the order — and
+        # whether or not it could be asked again now: a key blanked in the
+        # preferences must not throw away what it fetched.
+        for entry in listed:
+            if self._apply_cached(item, source_id(entry), record, poster_file, backdrop_file):
                 return
         if not self.online_for(kind):
             return
+        entries = [e for e in listed if self._usable(e)]
+        names = [source_id(e) for e in entries]
+        if not entries or self._missed(record, names):
+            return
 
         answered = None
+        asked = []  # the sources that answered at all, with a result or without
         for entry in entries:
             name = source_id(entry)
             lookup = _LOOKUPS.get((kind, name))
@@ -602,6 +716,7 @@ class MetadataService:
             except Exception as e:  # network errors, odd JSON, anything
                 print(f"{name} lookup failed for '{item['title']}': {e}")
                 continue
+            asked.append(name)
             if not art:  # nothing found here; the next source gets its turn
                 continue
             if isinstance(art, str):  # sources that only know a poster
@@ -623,7 +738,7 @@ class MetadataService:
 
         if answered:
             item["provider"] = answered
-            self._save(item, answered, key)
+        self._save(item, answered, key, asked, record)
 
     # -- providers -------------------------------------------------------
     def _tvmaze(self, show):
@@ -632,9 +747,12 @@ class MetadataService:
         if not results:
             return None
         data = results[0].get("show", {})
-        show["summary"] = _strip_html(data.get("summary"))
-        show["genres"] = data.get("genres", []) or []
-        show["rating"] = (data.get("rating") or {}).get("average")
+        # Facts go in only where this source has them: a source asked after
+        # one that answered is asked for the poster the first had none of,
+        # and must not blank what the first knew.
+        _fill(show, "summary", _strip_html(data.get("summary")))
+        _fill(show, "genres", data.get("genres"))
+        _fill(show, "rating", (data.get("rating") or {}).get("average"))
         premiered = data.get("premiered") or ""
         if not show.get("year") and premiered[:4].isdigit():
             show["year"] = int(premiered[:4])
@@ -656,28 +774,35 @@ class MetadataService:
             url = f"{TMDB_API}/search/{media}?{urllib.parse.urlencode(params)}"
             return _get_json(url).get("results") or []
 
-        results = search()
-        if not results and year:  # the folder's year may be off by one
-            params.pop("year", None)
-            params.pop("first_air_date_year", None)
+        try:
             results = search()
+            if not results and year:  # the folder's year may be off by one
+                params.pop("year", None)
+                params.pop("first_air_date_year", None)
+                results = search()
+        except urllib.error.HTTPError as e:
+            # Given up for the run, and said once rather than per title; it
+            # still counts as a failure here, not as "TMDB had nothing".
+            if e.code == 401:
+                self._refuse(entry, "TMDB rejected this key")
+            raise
         if not results:
             return None
 
         best = results[0]
         details = _get_json(f"{TMDB_API}/{media}/{best['id']}?api_key={api_key}")
-        item["summary"] = details.get("overview") or best.get("overview") or None
-        item["tagline"] = details.get("tagline") or None
-        item["genres"] = [g["name"] for g in details.get("genres") or [] if g.get("name")]
+        _fill(item, "summary", details.get("overview") or best.get("overview"))
+        _fill(item, "tagline", details.get("tagline"))
+        _fill(item, "genres", [g["name"] for g in details.get("genres") or [] if g.get("name")])
         vote = details.get("vote_average")
-        item["rating"] = round(vote, 1) if vote else None
+        _fill(item, "rating", round(vote, 1) if vote else None)
         if media == "movie":
-            item["runtime"] = details.get("runtime") or None
+            _fill(item, "runtime", details.get("runtime"))
             date = details.get("release_date") or ""
         else:
             run = details.get("episode_run_time") or []
-            item["runtime"] = run[0] if run else None
-            item["seasons"] = details.get("number_of_seasons")
+            _fill(item, "runtime", run[0] if run else None)
+            _fill(item, "seasons", details.get("number_of_seasons"))
             date = details.get("first_air_date") or ""
         if not item.get("year") and date[:4].isdigit():
             item["year"] = int(date[:4])
@@ -718,7 +843,7 @@ class MetadataService:
             # Drop the "X is a 2017 American superhero film" / "X is a Japanese
             # anime television series" lead-in; the tile already shows the title.
             extract = re.sub(r"^[^.]*\bis an? (\d{4} )?[^.]*\.\s*", "", extract, count=1) or extract
-        film["summary"] = extract
+        _fill(film, "summary", extract)
         m = re.search(r"\b(\d{4})\b", summary.get("description") or "")
         if not film.get("year") and m:
             film["year"] = int(m.group(1))

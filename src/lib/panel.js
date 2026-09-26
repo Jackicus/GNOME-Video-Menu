@@ -94,14 +94,13 @@ export const MediaPanel = GObject.registerClass({
         'open-state-changed': {param_types: [GObject.TYPE_BOOLEAN]},
     },
 }, class MediaLibrariesPanel extends St.Bin {
-    _init({host = null, dieWithSource = true, size = 1, inset = 0, accessibleName = ''} = {}) {
+    _init({host = null, dieWithSource = true, size = 1, inset = 0} = {}) {
         super._init({
             visible: false,
             x_expand: true,
             y_expand: true,
             reactive: true,
             accessible_role: Atk.Role.PANEL,
-            accessible_name: accessibleName,
         });
 
         // The monitor the panel is shown on is picked per open, so the

@@ -59,6 +59,9 @@ export class LibraryButton {
         this._onActivate = onActivate;
         this._button = null;
         this._buttonHost = null;
+        // The Dash to Panel panel the button is in, or null in the dash: a
+        // change of it is what a re-attach is for.
+        this._hostPanel = null;
         this._dashToPanel = null;
         // Whether it is lit, kept so a re-attach lights it again.
         this._checked = false;
@@ -115,17 +118,25 @@ export class LibraryButton {
         dashToPanel.connectObject?.('panels-created', () => this._reattach(), this);
     }
 
+    // Only when where the button sits has changed: Dash to Panel appearing,
+    // going, or making new panels — its old ones take the button with them.
+    // Any extension changing state says so (`extension-state-changed`), and
+    // a button built again for nothing takes the modal library's panel down
+    // with it, since that panel zooms out of the button and dies with it.
     _reattach() {
         // Dash to Panel may only have appeared since we last looked.
         this._armDashToPanel();
-        this._attach();
+        const panel = global.dashToPanel?.panels?.[0] ?? null;
+        if (panel !== this._hostPanel || !this._button?.get_parent())
+            this._attach();
     }
 
     _attach() {
         this._detach();
         // The primary panel only: a button per panel would make the host's
         // release a list, and is not done.
-        const panel = global.dashToPanel?.panels?.[0];
+        const panel = global.dashToPanel?.panels?.[0] ?? null;
+        this._hostPanel = panel;
         try {
             if (panel?.showAppsIconWrapper && panel.panel && panel._updateGroupedElements)
                 this._attachToPanel(panel);
@@ -143,6 +154,7 @@ export class LibraryButton {
         this._buttonHost = null;
         host?.release();
         this._button = null;
+        this._hostPanel = null;
     }
 
     _newButton() {

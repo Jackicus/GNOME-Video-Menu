@@ -314,6 +314,10 @@ class MediaLibrariesMediaView extends BaseAppView {
             }
         };
         dots.connect('notify::visible', holdRoom);
+        // And once the page count has settled: the shell's own handler of
+        // this signal is what calls setNPages, and this is connected after
+        // it, so the dots are looked at with their final count.
+        this._grid.connect('pages-changed', holdRoom);
         holdRoom();
 
         this._section = section;
@@ -364,7 +368,8 @@ class MediaLibrariesMediaView extends BaseAppView {
 
     // Stagger in the tiles of the page on show, the way the app grid settles.
     reveal() {
-        staggerIn(this._media.slice(0, this._perPage));
+        const start = this._shownPage() * this._perPage;
+        staggerIn(this._media.slice(start, start + this._perPage));
     }
 
     // Where the keyboard starts: the first tile of the page being shown, not

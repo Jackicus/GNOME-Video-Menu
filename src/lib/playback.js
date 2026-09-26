@@ -271,10 +271,13 @@ export class PlaybackWatcher {
     }
 
     _readPosition(player, then) {
+        // The answer is for the file in hand now; one that has moved on by
+        // the time it comes back would be given the old file's position.
+        const {path} = player;
         this._bus.call(player.owner, MPRIS_PATH, PROPERTIES, 'Get', new GLib.Variant('(ss)', [PLAYER, 'Position']),
             new GLib.VariantType('(v)'), Gio.DBusCallFlags.NONE, -1, this._cancellable,
             (bus, result) => {
-                if (this._players.get(player.owner) !== player)
+                if (this._players.get(player.owner) !== player || player.path !== path)
                     return;
                 try {
                     player.read(bus.call_finish(result).recursiveUnpack()[0] / 1e6);
@@ -307,14 +310,21 @@ export class PlaybackWatcher {
         return true;
     }
 
-    // Where the file in hand stopped, kept for next time — or, not far enough
-    // in or with resuming off, anything kept before forgotten.
+    // Where the file in hand stopped, kept for next time. With resuming off,
+    // anything kept before is forgotten. Stopped short of MIN_POSITION it is
+    // left as it was: a file opened and closed again says nothing about where
+    // it was left — and a resume the player did not take, or a look at the
+    // start from Files, must not cost the place that was kept.
     _keep(player) {
         if (!this._following(player) || this._check(player))
             return;
+        if (!this._settings.get_boolean('resume-playback')) {
+            this._tracker.setPosition(player.path, 0);
+            return;
+        }
         const at = player.now;
-        const keep = this._settings.get_boolean('resume-playback') && at >= MIN_POSITION;
-        this._tracker.setPosition(player.path, keep ? at : 0);
+        if (at >= MIN_POSITION)
+            this._tracker.setPosition(player.path, at);
     }
 
     _resume(player) {

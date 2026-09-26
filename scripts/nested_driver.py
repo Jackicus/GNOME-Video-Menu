@@ -408,15 +408,18 @@ def cmd_stream(width, height, viewer):
     argv = [a.replace("{node}", str(state["node"])) for a in viewer]
     proc = subprocess.Popen(argv)
 
-    loop = GLib.MainLoop()
+    # A loop of its own, not `loop` rebound: the five-second guard above is
+    # still pending when the node arrives early, and closes over the name —
+    # it would have quit this loop, and the mirror with it, at five seconds.
+    watching = GLib.MainLoop()
 
     def finish(*_):
-        loop.quit()
+        watching.quit()
         return GLib.SOURCE_REMOVE
 
     def viewer_alive():
         if proc.poll() is not None:     # the user closed the window
-            loop.quit()
+            watching.quit()
             return GLib.SOURCE_REMOVE
         return GLib.SOURCE_CONTINUE
 
@@ -430,7 +433,7 @@ def cmd_stream(width, height, viewer):
     signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, finish)
     signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, finish)
     GLib.timeout_add(300, viewer_alive)
-    loop.run()
+    watching.run()
 
     if proc.poll() is None:
         proc.terminate()
